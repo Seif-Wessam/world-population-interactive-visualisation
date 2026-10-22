@@ -13,7 +13,7 @@ What the project aims to answer
 Data source
 Population data comes from the World Bank Indicators API.
 Resource	Purpose
-Population, total — SP.POP.TOTL	Population observations by economy and year
+Population, total - SP.POP.TOTL	Population observations by economy and year
 Country API	Identifiers and classification metadata
 
 
