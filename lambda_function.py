@@ -58,7 +58,7 @@ def get_population_data_and_country_metadata():
     return records_list, country_metadata
     
 def enrich_population_records_with_country_info(population_records, country_metadata):
-    
+
     #create a lookup dictionary for country and region information
     country_and_region_lookup = {}
     for country in country_metadata[1]:
@@ -89,6 +89,7 @@ def lambda_handler(event, context):
         'statusCode': 200,
         'body': json.dumps(enriched_records)
     }
+
 
 
 if __name__ == "__main__":
