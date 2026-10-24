@@ -3,7 +3,7 @@ import urllib.request
 
 BUCKET = "webgis-population-app"
 
-def lambda_handler(event, context):
+def get_population_data_and_country_metadata():
     url =  "https://api.worldbank.org/v2/country/all/indicator/SP.POP.TOTL?format=json&per_page=300&mrv=1"
     with urllib.request.urlopen(url) as response:
         data = json.loads(response.read())
@@ -55,6 +55,11 @@ def lambda_handler(event, context):
     #   capitalCity, str
     #   longitude, float
     #   latitude, float
+    return records_list, country_metadata
+    
+def enrich_population_records_with_country_info(population_records, country_metadata):
+    
+    #create a lookup dictionary for country and region information
     country_and_region_lookup = {}
     for country in country_metadata[1]:
         country_id = country.get('iso2Code')
@@ -64,8 +69,8 @@ def lambda_handler(event, context):
             "is_aggregate": country.get('region', {}).get('id') == "NA"
         }
 
-    #now we can fill the records_list with the region and is_aggregate information
-    for record in records_list:
+    #fill the records_list with the region and is_aggregate information
+    for record in population_records:
         country_id = record.get('country_id')
         if country_id in country_and_region_lookup:
             record['region'] = country_and_region_lookup[country_id]['region']
@@ -74,10 +79,17 @@ def lambda_handler(event, context):
             record['region'] = None
             record['is_aggregate'] = None
 
+    return population_records
+
+def lambda_handler(event, context):
+    population_records, country_metadata = get_population_data_and_country_metadata()
+    enriched_records = enrich_population_records_with_country_info(population_records, country_metadata)
+    
     return {
         'statusCode': 200,
-        'body': json.dumps('Hello from Lambda!')
+        'body': json.dumps(enriched_records)
     }
+
 
 if __name__ == "__main__":
     lambda_handler(None, None)
