@@ -1,4 +1,4 @@
-from lambda_function import enrich_population_records_with_country_info
+from ingestion.lambda_function import enrich_population_records_with_country_info
 
 def test_enrich_population_records_with_country_info():
     # Sample population records

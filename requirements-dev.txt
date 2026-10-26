@@ -1,1 +1,2 @@
+-r ingestion/requirements.txt
 pytest
