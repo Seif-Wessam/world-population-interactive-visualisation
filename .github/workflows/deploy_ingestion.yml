@@ -1,0 +1,78 @@
+name: Deploy ingestion to dev
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-ingestion-dev
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: eu-north-1
+  ECR_REGISTRY: 411145869013.dkr.ecr.eu-north-1.amazonaws.com
+  ECR_REPOSITORY: population-ingestion
+  LAMBDA_FUNCTION: population-ingestion-dev
+  IMAGE_TAG: gha-${{ github.run_id }}-${{ github.run_attempt }}
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+        # Check out source to have the runner download the repository
+        # so that it can access the code and build the Docker image.
+      - name: Check out source
+        uses: actions/checkout@v6
+
+        # for the moment we repeat the tests that are in the ci.yml workflow, 
+        # but we could also call the ci.yml workflow from here
+        # this is to ensure that the code is tested before deployment, 
+        # but we could also have a separate workflow for testing 
+        #and then call this workflow only if the tests pass
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Run tests
+        run: python -m pytest -q
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Authenticate with AWS
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log Docker into ECR
+        run: |
+          aws ecr get-login-password |
+            docker login --username AWS --password-stdin "$ECR_REGISTRY"
+
+      - name: Build and upload image
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --provenance=false \
+            --push \
+            --tag "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" \
+            ./ingestion
+
+      - name: Update Lambda
+        run: |
+          aws lambda update-function-code \
+            --function-name "$LAMBDA_FUNCTION" \
+            --image-uri "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+          aws lambda wait function-updated-v2 \
+            --function-name "$LAMBDA_FUNCTION"
