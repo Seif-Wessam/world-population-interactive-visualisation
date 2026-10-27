@@ -81,16 +81,26 @@ def enrich_population_records_with_country_info(population_records, country_meta
 
     return population_records
 
+def s3_write_to_bucket(data, bucket_name, key):
+    import boto3
+    s3 = boto3.client("s3")
+    serialised_data = json.dumps(data)
+    response = s3.put_object(
+        Bucket=bucket_name, 
+        Key=key, 
+        Body=serialised_data, 
+        ContentType='application/json')
+    return serialised_data, response["ResponseMetadata"]["HTTPStatusCode"]
+
 def lambda_handler(event, context):
     population_records, country_metadata = get_population_data_and_country_metadata()
     enriched_records = enrich_population_records_with_country_info(population_records, country_metadata)
-    
+    body, status_code = s3_write_to_bucket(enriched_records, BUCKET, "data/enriched_population_data.json")
     return {
-        'statusCode': 200,
-        'body': json.dumps(enriched_records)
+        'statusCode': status_code,
+        'body': body
     }
-
-
 
 if __name__ == "__main__":
     lambda_handler(None, None)
+
