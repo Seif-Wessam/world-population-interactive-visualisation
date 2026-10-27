@@ -1,5 +1,3 @@
 -r ingestion/requirements.txt
 pytest
-boto3
-botocore
-awscrt
+boto3[crt]>=1.41.0
