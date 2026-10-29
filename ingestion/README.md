@@ -4,6 +4,26 @@ This component retrieves the latest population observations and country metadata
 
 ## Data flow
 
+The data flow follows the following diagram:
+```mermaid
+flowchart TD
+    subgraph Deployment["Deployment flow"]
+        A["GitHub repository"] --> B["GitHub Actions<br/>manual deployment"]
+        B --> C["Run tests"]
+        C --> D["Build Docker image"]
+        D --> E["Push image to ECR"]
+        E --> F["Update Lambda"]
+    end
+
+    subgraph Ingestion["Data ingestion flow"]
+        G["Manual Lambda invocation"] --> H["Request World Bank data"]
+        H --> I["Transform and enrich records"]
+        I --> J["Write JSON to S3"]
+    end
+
+    F -. "deploys code used by" .-> H
+```
+
 1. Request population data and country metadata from the World Bank API.
 2. Extract the list of population observations from the response.
 3. Build simplified records and a metadata lookup keyed by `iso2Code`.
