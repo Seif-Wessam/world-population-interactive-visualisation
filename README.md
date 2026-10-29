@@ -39,6 +39,13 @@ The planned application path is:
 
 **Amazon S3 → Dash application → interactive visualisations**
 
+```mermaid
+flowchart LR
+    A["World Bank API"] --> B["Ingestion pipeline"]
+    B --> C["Population JSON in S3"]
+    C --> D["Dash app and chatbot — planned"]
+```
+
 The deployment workflow is:
 
 **GitHub Actions → tests → Docker image → Amazon ECR → AWS Lambda**
