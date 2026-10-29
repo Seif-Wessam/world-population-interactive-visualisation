@@ -27,24 +27,26 @@ historical data needed for analysis across years.
 
 ## Architecture
 
-The current ingestion path is:
-
-**World Bank API → AWS Lambda → Amazon S3**
-
-The Lambda retrieves and transforms the data before storing the enriched JSON
-in S3. The records distinguish individual economies from aggregate groups.
-World Bank economies can include territories as well as sovereign countries.
-
-The planned application path is:
-
-**Amazon S3 → Dash application → interactive visualisations**
+The project has two components connected through Amazon S3:
 
 ```mermaid
 flowchart LR
-    A["World Bank API"] --> B["Ingestion pipeline"]
-    B --> C["Population JSON in S3"]
-    C --> D["Dash app and chatbot — planned"]
+    WB["World Bank API"] --> ING["Ingestion pipeline"]
+    ING --> S3["Population data in S3"]
+    S3 --> APP["Dash app and chatbot (planned)"]
+    APP --> USER["Application user"]
 ```
+
+The **ingestion pipeline** retrieves and enriches World Bank data, then stores
+the result in S3. The **planned application** will read that data and let
+users explore it through interactive visualisations and, potentially, a
+chatbot.
+
+For details, see:
+
+- [Ingestion pipeline](ingestion/README.md) — data processing and deployment.
+- [Planned Dash application](dash_app/README.md) — the proposed user-facing
+  workflow.
 
 The deployment workflow is:
 
