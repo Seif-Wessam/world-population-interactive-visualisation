@@ -19,7 +19,14 @@ env:
   IMAGE_TAG: gha-${{ github.run_id }}-${{ github.run_attempt }}
 
 jobs:
+
+  run_ci:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
   deploy:
+    needs: run_ci
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
 
@@ -28,23 +35,6 @@ jobs:
         # so that it can access the code and build the Docker image.
       - name: Check out source
         uses: actions/checkout@v6
-
-        # for the moment we repeat the tests that are in the ci.yml workflow, 
-        # but we could also call the ci.yml workflow from here
-        # this is to ensure that the code is tested before deployment, 
-        # but we could also have a separate workflow for testing 
-        # and then call this workflow only if the tests pass
-        # will be implemented in the future
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
-      - name: Install dependencies
-        run: python -m pip install -r requirements-dev.txt
-
-      - name: Run tests
-        run: python -m pytest -q
         
         # Set up Docker Buildx to build and push the Docker image to ECR
       - name: Set up Docker Buildx
