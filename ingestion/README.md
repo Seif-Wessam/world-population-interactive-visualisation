@@ -1,6 +1,6 @@
 # Population ingestion
 
-This component retrieves the latest population observations and country metadata from the World Bank, enriches each observation, and writes the result to Amazon S3. It is deployed as an AWS Lambda container image.
+This component retrieves annual population observations from 1970 through the current calendar year and country metadata from the World Bank. It enriches the observations and writes the result to Amazon S3. It is deployed as an AWS Lambda container image.
 
 ## Data flow
 
@@ -24,11 +24,14 @@ flowchart TD
     F -. "deploys code used by" .-> H
 ```
 
-1. Request population data and country metadata from the World Bank API.
-2. Extract the list of population observations from the response.
-3. Build simplified records and a metadata lookup keyed by `iso2Code`.
-4. Match each observation's `country.id` to the lookup; add its region and aggregate flag.
-5. Serialize the enriched records as JSON and upload them to S3.
+1. Request the population observations and country metadata, using `per_page=3000`.
+2. Read the pagination metadata and retrieve all reported pages for both endpoints.
+3. Check page metadata and verify the combined count against the API total.
+4. Build simplified population records and a metadata lookup keyed by `iso2Code`.
+5. Match each observation's `country.id` to the lookup; add its region and aggregate flag.
+6. Serialize the enriched records as JSON and upload them to S3.
+
+If an API request or pagination check fails, the error propagates and the S3 write is not called. The existing object is left untouched by that failed retrieval. Retries and saving partial pages are not yet implemented.
 
 The World Bank response contains individual economies and aggregate groups. The current classification marks an entry as an aggregate when the metadata region ID is `NA`. Economies can include territories as well as sovereign countries.
 
@@ -38,6 +41,7 @@ Example output record:
 {
   "country": "Africa Eastern and Southern",
   "country_id": "ZH",
+  "country_iso3": "AFE",
   "date": "2025",
   "population": 788844284,
   "region": "Aggregates",
@@ -52,7 +56,9 @@ A missing population is stored as JSON `null`. When a population record has no m
 - `lambda_function.py`: API requests, transformation, S3 write, and Lambda handler.
 - `requirements.txt`: runtime dependencies.
 - `Dockerfile`: definition of the Lambda-compatible image.
-- `../tests/test_population.py`: tests for the enrichment transformation.
+- `../tests/test_population.py`: transformation and ISO3 preservation tests.
+- `../tests/test_world_bank_api.py`: pagination and request-failure tests.
+- `../tests/test_ingestion_handler.py`: handler success-path test.
 
 ## Run locally
 
@@ -104,14 +110,50 @@ The current handler writes to S3, so this invocation also needs AWS credentials 
 4. Invoke the Lambda with a test event such as `{}`. Check the execution result and logs.
 5. Check the S3 object's last-modified time and inspect its content.
 
-The workflow builds from `ingestion/`, pushes a uniquely tagged image to ECR, and updates the existing Lambda. It does not invoke the function. GitHub uses OIDC to assume a deployment role configured via the `AWS_DEPLOY_ROLE_ARN` repository variable. The Lambda uses a separate execution role that needs permission to write to S3.
+The deployment workflow calls the reusable CI workflow and waits for it to pass. It then builds from `ingestion/`, pushes a uniquely tagged image to ECR, and updates the existing Lambda. It does not invoke the function. GitHub uses OIDC to assume a deployment role configured via the `AWS_DEPLOY_ROLE_ARN` repository variable. The Lambda uses a separate execution role that needs permission to write to S3.
 
-## Known limitations
+## Runtime and verification
 
-- Both API requests currently request up to 300 records; pagination and completeness checks are not implemented.
-- `mrv=1` retrieves the latest available observation per series, rather than historical time series; observation years can differ.
-- A successful deployment does not by itself verify a successful invocation or S3 write.
-- The current unit test checks enrichment with sample data; it does not test the live World Bank API or S3 integration.
-- The bucket is currently configured in the Python code. Separate environment configuration is a future improvement.
+The handler returns a compact success summary with the record count and serialized JSON size in bytes. It does not return the full dataset. The S3 object contains the records.
+
+In one successful historical ingestion run, the handler reported 14,896 records and 2,532,761 JSON bytes. At the time of that run, Lambda had 128 MB allocated and reported 105 MB maximum memory use and about 11.4 seconds duration. The configuration was subsequently changed to 256 MB and a 60-second timeout. These are observations and settings at the time of the run, not guarantees for future runs.
+
+To check a new deployment, invoke the Lambda separately and review the response, the `REPORT` line in the logs, and the S3 object's last-modified time and contents. The write replaces the existing object at the configured key.
+
+## Reliability and validation
+
+The ingestion pipeline includes several checks to reduce the risk of publishing
+an incomplete dataset:
+
+- Both World Bank endpoints are paginated automatically.
+- Pagination metadata is checked across requests.
+- The number of retrieved records is compared with the API's reported total.
+- If an API request or pagination check fails, the error stops the run before
+  the S3-writing step.
+- Automated tests cover multi-page retrieval, ISO3 preservation, and simulated
+  failures during population and metadata requests.
+- The deployed Lambda has been invoked successfully and its S3 output inspected.
+
+These checks improve confidence in ingestion, but matching counts alone does not
+prove that every record is correct or that the source remained unchanged between
+page requests.
+
+## Data interpretation
+
+- The dataset includes annual observations from 1970 onward, as provided by the
+  World Bank.
+- Missing population values are preserved as `null`; they should not be
+  interpreted as zero.
+- The output includes both individual economies and aggregate groups, identified
+  by `is_aggregate`.
+- Three-character codes are preserved for map matching, but some may be missing
+  or unsupported by the visualisation provider.
+
+## Future improvements
+
+- Add retries and consider recovery of partial runs.
+- Move the bucket name out of the Python code for environment-specific
+  configuration.
+- Add further live integration checks and data-quality validation as needed.
 
 Data source: [World Bank Indicators API](https://datahelpdesk.worldbank.org/knowledgebase/topics/125589-developer-information).

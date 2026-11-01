@@ -4,20 +4,21 @@ A data project for exploring World Bank population data through an interactive
 Dash and Plotly application. It combines API ingestion, data transformation,
 testing, and cloud deployment.
 
-The ingestion pipeline is deployed on AWS. The interactive application and
-historical analysis are planned.
+The ingestion pipeline is deployed on AWS and retrieves historical observations.
+The interactive application and historical visualisations are planned.
 
 ## Project status
 
-The ingestion pipeline retrieves the latest available population observations,
-enriches them with World Bank region and aggregate metadata, and writes the
-results as JSON to Amazon S3.
+The ingestion pipeline retrieves annual population observations from 1970 through
+the current calendar year, enriches them with World Bank region and aggregate
+metadata, and writes the results as JSON to Amazon S3. Records preserve both
+two-character country identifiers and the provider’s three-character codes.
 
 The pipeline runs as a container image on AWS Lambda. GitHub Actions runs
 automated tests and provides a manually triggered deployment workflow.
 
-The current ingestion request uses `mrv=1`, so it does not yet provide the
-historical data needed for analysis across years.
+Both World Bank requests use pagination, requesting up to 3,000 records per page.
+The pipeline checks page metadata and the total record count before publishing.
 
 ## Questions the project aims to answer
 
@@ -66,7 +67,7 @@ Planned features include:
 - A world map showing population by economy.
 - Filters for selecting economies and exploring their population data.
 - A distinction between individual economies and aggregate groups.
-- Historical charts and comparisons once historical data ingestion is available.
+- Historical charts and comparisons using the ingested observations.
 
 The Dash application is still to be developed. Its final features, data-access
 strategy, and cloud hosting configuration have not yet been implemented or
@@ -100,8 +101,8 @@ python -m pytest -q
 ```
 
 The CI workflow runs tests automatically on pushes and on pull requests
-targeting `main`. The manual ingestion deployment workflow also runs tests
-before building and deploying the image.
+targeting `main`. The manual ingestion deployment workflow calls the reusable
+CI workflow and waits for it to succeed before building and deploying the image.
 
 ## Data quality and interpretation
 
@@ -112,8 +113,9 @@ before building and deploying the image.
 - Records without matching country metadata receive `null` for `region` and
   `is_aggregate`.
 - Observation years are currently stored as strings.
-- The current requests use `per_page=300`. Pagination and completeness checks
-  still need to be implemented.
+- Both requests use `per_page=3000` and retrieve all reported pages. Page and
+  total-count checks catch some incomplete responses, but do not guarantee a
+  consistent source snapshot or independently validate the data.
 
 ## Technology
 
@@ -131,14 +133,16 @@ before building and deploying the image.
 
 ## Roadmap
 
-- [x] Retrieve and enrich the latest population observations.
+- [x] Retrieve and enrich historical population observations from 1970 onward.
 - [x] Add a transformation unit test and automated CI.
 - [x] Build and test a Lambda-compatible Docker image locally.
 - [x] Deploy the ingestion image to ECR and Lambda.
 - [x] Write enriched JSON to S3.
 - [x] Add a manually triggered ingestion deployment workflow.
-- [ ] Handle API pagination and validate ingestion completeness.
-- [ ] Retrieve historical population observations.
+- [x] Handle API pagination and check reported record totals.
+- [x] Preserve three-character country codes for map matching.
+- [ ] Add retry and partial-run recovery if needed.
+- [ ] Move bucket configuration outside the Python code.
 - [ ] Build an interactive Dash application.
 - [ ] Deploy the interactive application.
 
