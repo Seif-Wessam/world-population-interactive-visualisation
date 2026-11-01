@@ -1,61 +1,119 @@
 import json
 import urllib.request
+from datetime import date
+from urllib.parse import urlencode
 
 BUCKET = "webgis-population-app"
 
+def get_all_world_bank_pages(base_url, parameters):
+    """Fetch every page of a World Bank response.
+
+    Returns the first page's metadata and a combined list of records.
+    Raises an error if a request fails or the response is incomplete.
+    """
+    all_records = []
+    first_metadata = None
+    expected_pages = None
+    expected_total = None
+    page = 1
+
+    while expected_pages is None or page <= expected_pages:
+        page_parameters = {
+            **parameters,
+            "page": page,
+        }
+
+        request_url = f"{base_url}?{urlencode(page_parameters)}"
+
+        with urllib.request.urlopen(request_url, timeout=30) as response:
+            data = json.loads(response.read())
+
+        # A valid response for these requests should be [metadata, records].
+        if (
+            not isinstance(data, list)
+            or len(data) != 2
+            or not isinstance(data[0], dict)
+            or not isinstance(data[1], list)
+        ):
+            raise ValueError(
+                f"Unexpected World Bank response for page {page}."
+            )
+
+        metadata, records = data
+
+        if page == 1:
+            first_metadata = metadata
+            expected_pages = int(metadata["pages"])
+            expected_total = int(metadata["total"])
+
+            if expected_pages < 1:
+                raise ValueError("World Bank returned no pages.")
+
+        # Detect an unexpected page or changing pagination metadata.
+        if (
+            int(metadata["page"]) != page
+            or int(metadata["pages"]) != expected_pages
+            or int(metadata["total"]) != expected_total
+        ):
+            raise ValueError(
+                f"Inconsistent World Bank metadata on page {page}."
+            )
+
+        all_records.extend(records)
+        page += 1
+
+    if len(all_records) != expected_total:
+        raise ValueError(
+            "Incomplete World Bank response: "
+            f"expected {expected_total} records, received {len(all_records)}."
+        )
+
+    return first_metadata, all_records
+
+
 def get_population_data_and_country_metadata():
-    url =  "https://api.worldbank.org/v2/country/all/indicator/SP.POP.TOTL?format=json&per_page=300&mrv=1"
-    with urllib.request.urlopen(url) as response:
-        data = json.loads(response.read())
-    # Response: [metadata dictionary, list of population records]
-    # Each record contains:
-    #   country.value: country or region name
-    #   date: year as a string
-    #   value: population, possibly None
-    records = data[1]
-    # each record is a dict:
-        #indicator: dict keys: id, value
-        #country: dict keys: id, value
-        #"countryiso3code": "",
-        #"date": "",
-        #"value": int,
-        #"unit": "",
-        #"obs_status": "",
-        #"decimal": int
+    current_year = date.today().year
+
+    population_url = (
+        "https://api.worldbank.org/v2/country/all/"
+        "indicator/SP.POP.TOTL"
+    )
+
+    _, population_records = get_all_world_bank_pages(
+        population_url,
+        {
+            "format": "json",
+            "per_page": 3000,
+            "date": f"1970:{current_year}",
+        },
+    )
+
     records_list = []
-    for record in records:
-        country = record['country']['value']
-        country_id = record['country']['id']
-        date = record['date']
-        population_value = record['value']
+    for record in population_records:
         record_dict = {
-            "country": country,
-            "country_id": country_id,
-            "date": date,
-            "population": population_value
+            "country": record["country"]["value"],
+            "country_id": record["country"]["id"],
+            "date": record["date"],
+            "population": record["value"],
+            "country_iso3": record["countryiso3code"],
         }
         records_list.append(record_dict)
 
-    #the goal now is to establish a connection to the same API 
-    #so that we get the metadata of the different countries
-    #to differentiate a country from a regional aggregation
-    metadata_url =  "https://api.worldbank.org/v2/country?format=json&per_page=300&mrv=1"
-    with urllib.request.urlopen(metadata_url) as response:
-        country_metadata = json.loads(response.read())
-    # Response: [metadata dictionary, list of population records]
-    # Each population record contains:
-    #dict keys: 
-    #   id, str 
-    #   iso2Code, str 
-    #   name, str
-    #   region, dict keys: id, iso2code, value
-    #   adminregion, dict keys: id, iso2code, value
-    #   incomeLevel, dict keys: id, value
-    #   lendingType, dict keys: id, value
-    #   capitalCity, str
-    #   longitude, float
-    #   latitude, float
+    metadata_url = "https://api.worldbank.org/v2/country"
+
+    metadata, country_records = get_all_world_bank_pages(
+        metadata_url,
+        {
+            "format": "json",
+            "per_page": 3000,
+        },
+    )
+
+    # Keep the response shape expected by the enrichment function.
+    country_metadata = [metadata, country_records]
+
     return records_list, country_metadata
+
     
 def enrich_population_records_with_country_info(population_records, country_metadata):
 
@@ -81,6 +139,7 @@ def enrich_population_records_with_country_info(population_records, country_meta
 
     return population_records
 
+
 def s3_write_to_bucket(data, bucket_name, key):
     import boto3
     s3 = boto3.client("s3")
@@ -92,13 +151,33 @@ def s3_write_to_bucket(data, bucket_name, key):
         ContentType='application/json')
     return serialised_data, response["ResponseMetadata"]["HTTPStatusCode"]
 
+
 def lambda_handler(event, context):
-    population_records, country_metadata = get_population_data_and_country_metadata()
-    enriched_records = enrich_population_records_with_country_info(population_records, country_metadata)
-    body, status_code = s3_write_to_bucket(enriched_records, BUCKET, "data/enriched_population_data.json")
+    population_records, country_metadata = (
+        get_population_data_and_country_metadata()
+    )
+
+    enriched_records = enrich_population_records_with_country_info(
+        population_records,
+        country_metadata,
+    )
+
+    # This is called only after retrieval and enrichment succeed.
+    serialised_data, status_code = s3_write_to_bucket(
+        enriched_records,
+        BUCKET,
+        "data/enriched_population_data.json",
+    )
+
+    summary = {
+        "message": "Population data written to S3.",
+        "record_count": len(enriched_records),
+        "json_size_bytes": len(serialised_data.encode("utf-8")),
+    }
+
     return {
-        'statusCode': status_code,
-        'body': body
+        "statusCode": status_code,
+        "body": json.dumps(summary),
     }
 
 if __name__ == "__main__":

@@ -1,4 +1,7 @@
-from ingestion.lambda_function import enrich_population_records_with_country_info
+from ingestion.lambda_function import enrich_population_records_with_country_info, get_population_data_and_country_metadata
+import io
+import json
+from unittest.mock import patch
 
 def test_enrich_population_records_with_country_info():
     # Sample population records
@@ -40,3 +43,38 @@ def test_enrich_population_records_with_country_info():
     ]
 
     assert enriched_records == expected_records
+
+
+def test_population_data_preserves_country_iso3():
+    population_response = [
+        {"page": 1, "pages": 1, "total": 1},
+        [
+            {
+                "country": {"id": "FR", "value": "France"},
+                "countryiso3code": "FRA",
+                "date": "2025",
+                "value": 68000000,
+            }
+        ],
+    ]
+
+    metadata_response = [
+        {"page": 1, "pages": 1, "total": 1},
+        [{"iso2Code": "FR"}],
+    ]
+
+    fake_responses = [
+        io.BytesIO(json.dumps(population_response).encode("utf-8")),
+        io.BytesIO(json.dumps(metadata_response).encode("utf-8")),
+    ]
+
+    with patch(
+        "ingestion.lambda_function.urllib.request.urlopen",
+        side_effect=fake_responses,
+    ):
+        records, _ = get_population_data_and_country_metadata()
+
+    assert records[0]["country"] == "France"
+    assert records[0]["country_id"] == "FR"
+    assert records[0]["country_iso3"] == "FRA"
+
