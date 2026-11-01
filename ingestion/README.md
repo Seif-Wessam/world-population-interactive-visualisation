@@ -149,6 +149,32 @@ page requests.
 - Three-character codes are preserved for map matching, but some may be missing
   or unsupported by the visualisation provider.
 
+## Planned data-quality validation
+
+The pipeline currently checks pagination metadata and the number of retrieved
+records before writing to S3. These checks help detect incomplete API responses,
+but they do not validate the quality of every data value.
+
+A future Great Expectations suite will provide additional checks to reduce the
+risk of passing incorrect or incomplete data to the application.
+
+Candidate checks include:
+
+- Required columns are present.
+- Country identifiers and observation years are populated.
+- Observation years fall within the requested range.
+- Population values are non-negative when present.
+- Missing population values are measured and reported rather than treated as zero.
+- Duplicate country-and-year combinations are identified.
+- Missing ISO3 codes and unmatched country metadata are measured and reported.
+- Aggregate groups are distinguished from individual economies.
+
+The dataset will first be profiled to establish appropriate rules and
+thresholds. We will then decide which failures should stop publication to S3
+and which should produce a warning.
+
+**Status: planned.** Great Expectations validation is not yet implemented.
+
 ## Future improvements
 
 - Add retries and consider recovery of partial runs.

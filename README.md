@@ -142,6 +142,7 @@ CI workflow and waits for it to succeed before building and deploying the image.
 - [x] Handle API pagination and check reported record totals.
 - [x] Preserve three-character country codes for map matching.
 - [ ] Add retry and partial-run recovery if needed.
+- [ ] Profile the dataset and implement a Great Expectations validation suite.
 - [ ] Move bucket configuration outside the Python code.
 - [ ] Build an interactive Dash application.
 - [ ] Deploy the interactive application.
