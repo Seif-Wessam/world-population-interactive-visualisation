@@ -218,3 +218,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# files:
+ingestion/github-permissions-policy.json
+ingestion/github-trust-policy.json
