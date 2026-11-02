@@ -30,9 +30,12 @@ def create_population_globe(map_records, year):
             "country_iso3": True,
             "population": ":,.0f",
             "date": True,
+            "log_population": False,
         },
         title=f"Population by economy — {year}",
-        labels={"population": "Population"},
+        labels={"population": "Population",
+                "country_iso3": "ISO3 code",
+                "date": "Year"},
     )
 
     fig.update_coloraxes(

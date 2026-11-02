@@ -52,6 +52,7 @@ app.layout = html.Div(
         html.P("Click an economy to explore its population history."),
 
         dcc.Graph(id="population-globe", figure=globe),
+        html.Pre(id="globe-debug"),
 
         html.Button("Reset chart", id="reset-history", n_clicks=0),
 
@@ -66,6 +67,7 @@ app.layout = html.Div(
 )
 
 register_callbacks(app, population_data)
+
 
 
 if __name__ == "__main__":

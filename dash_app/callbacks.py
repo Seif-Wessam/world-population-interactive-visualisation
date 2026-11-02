@@ -1,7 +1,8 @@
 from dash import Input, Output, callback, ctx, no_update
-import plotly.express as px
 
 from dash_app.data import get_country_history
+
+from dash_app.ui import create_population_history_chart
 
 
 def register_callbacks(app, population_data):
@@ -36,12 +37,6 @@ def register_callbacks(app, population_data):
 
         country_name = history["country"].iloc[0]
 
-        fig = px.line(
-            history,
-            x="date",
-            y="population",
-            title=f"Population history — {country_name}",
-            labels={"date": "Year", "population": "Population"},
-        )
+        fig = create_population_history_chart(history)
 
         return fig, {"display": "block"}, ""
