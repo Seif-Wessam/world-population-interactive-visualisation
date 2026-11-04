@@ -1,155 +1,209 @@
-# World Population Interactive Visualisation
+# World Population Explorer
 
-A data project for exploring World Bank population data through an interactive
-Dash and Plotly application. It combines API ingestion, data transformation,
-testing, and cloud deployment.
+An interactive application for exploring historical World Bank population
+data, supported by a Python ingestion pipeline deployed on AWS.
 
-The ingestion pipeline is deployed on AWS and retrieves historical observations.
-The interactive application and historical visualisations are planned.
+The project connects API ingestion, metadata enrichment, cloud storage and
+interactive visualisation. Users can rotate a globe, select an economy and
+explore its population history.
 
 ## Project status
 
-The ingestion pipeline retrieves annual population observations from 1970 through
-the current calendar year, enriches them with World Bank region and aggregate
-metadata, and writes the results as JSON to Amazon S3. Records preserve both
-two-character country identifiers and the provider’s three-character codes.
+| Component | Status |
+| --- | --- |
+| Historical ingestion and metadata enrichment | Implemented |
+| Pagination and record-count checks | Implemented |
+| Ingestion on AWS Lambda with output in S3 | Deployed |
+| GitHub Actions ingestion deployment | Implemented; manually triggered |
+| Interactive Dash application | Implemented and run locally |
+| Dashboard styling and country details panel | Implemented |
+| Dashboard deployment to AWS | Pending |
+| Broader data-quality validation | Planned |
 
-The pipeline runs as a container image on AWS Lambda. GitHub Actions runs
-automated tests and provides a manually triggered deployment workflow.
+## Features
 
-Both World Bank requests use pagination, requesting up to 3,000 records per page.
-The pipeline checks page metadata and the total record count before publishing.
+### Data ingestion
 
-## Questions the project aims to answer
+- Retrieves annual population observations from 1970 through the current
+  calendar year, subject to availability in the World Bank API.
+- Retrieves country metadata and enriches observations with region names
+  and aggregate-group flags.
+- Preserves country identifiers and ISO3 codes for map matching.
+- Fetches all reported pages from both API endpoints.
+- Checks pagination metadata and compares retrieved record counts with
+  the API totals before publishing.
+- Writes the enriched dataset as JSON to Amazon S3.
 
-- How has an economy's population changed over time?
-- How do population levels and growth patterns compare across economies?
-- How do aggregate groups compare with individual economies?
+### Interactive dashboard
+
+- Displays an interactive globe using a logarithmic Viridis colour scale.
+- Shows exact population values and observation years on hover.
+- Uses the latest year with available population values and non-empty
+  ISO3 codes for more than 200 distinct economies.
+- Opens a details panel when an economy is selected.
+- Displays its latest available population, observation year and
+  historical population chart.
+- Clears the selection without replacing the globe figure.
+- Includes CSS layouts for desktop and smaller screens.
+
+The dashboard displays individual economies, including territories.
+World Bank aggregate groups are excluded from the globe and country
+history charts.
 
 ## Architecture
 
-The project has two components connected through Amazon S3:
-
 ```mermaid
-flowchart LR
-    WB["World Bank API"] --> ING["Ingestion pipeline"]
-    ING --> S3["Population data in S3"]
-    S3 --> APP["Dash app and chatbot (planned)"]
-    APP --> USER["Application user"]
+flowchart TD
+    API["World Bank API"] --> Ingestion["Ingestion Lambda"]
+    Ingestion --> S3["Enriched JSON in S3"]
+    S3 --> Dash["Dash backend — currently local"]
+    Browser["Browser"] <--> Dash
 ```
 
-The **ingestion pipeline** retrieves and enriches World Bank data, then stores
-the result in S3. The **planned application** will read that data and let
-users explore it through interactive visualisations and, potentially, a
-chatbot.
+The ingestion pipeline retrieves and prepares the data. The Dash backend
+reads the stored dataset from S3 at startup and serves the interactive
+application to the browser.
 
-For details, see:
+The browser does not need AWS credentials or direct access to the bucket.
 
-- [Ingestion pipeline](ingestion/README.md) — data processing and deployment.
-- [Planned Dash application](dash_app/README.md) — the proposed user-facing
-  workflow.
+## Deployment
 
-The deployment workflow is:
+### Ingestion: implemented
 
-**GitHub Actions → tests → Docker image → Amazon ECR → AWS Lambda**
+The ingestion deployment runs through GitHub Actions:
 
-The ingestion deployment is triggered manually from GitHub Actions. Invoking
-the Lambda to refresh the dataset is a separate action.
+1. Run the reusable CI workflow.
+2. Authenticate with AWS using GitHub OIDC.
+3. Build the ingestion Docker image.
+4. Push a uniquely tagged image to Amazon ECR.
+5. Update the existing ingestion Lambda and wait for the update to finish.
 
-## Planned Dash application
+The workflow is triggered manually from GitHub Actions and deploys from
+`main`. Deploying code does not invoke the ingestion function; refreshing
+the dataset is a separate action.
 
-The project will include an interactive web application built with Dash and
-Plotly. The application is intended to read the processed population data
-stored in Amazon S3 and display it through interactive visualisations.
+See [ingestion/README.md](ingestion/README.md) for setup and verification.
 
-Planned features include:
+### Dashboard: next step
 
-- A world map showing population by economy.
-- Filters for selecting economies and exploring their population data.
-- A distinction between individual economies and aggregate groups.
-- Historical charts and comparisons using the ingested observations.
+The intended deployment process is also through GitHub Actions:
+tests, container build, ECR upload and deployment to a separate dashboard
+Lambda.
 
-The Dash application is still to be developed. Its final features, data-access
-strategy, and cloud hosting configuration have not yet been implemented or
-validated.
+The planned runtime uses Gunicorn and AWS Lambda Web Adapter, with an HTTPS
+endpoint for browser access. The dashboard execution role will need read
+access to the population object in S3.
 
-## Repository structure
+This deployment is not yet implemented in the current repository:
 
-```text
-.github/workflows/        CI and ingestion deployment workflows
-ingestion/                Lambda code, Dockerfile and runtime dependencies
-dash_app/                 Planned dashboard
-tests/                    Automated tests
-requirements-dev.txt      Development and test dependencies
-```
+- `.github/workflows/deploy_dashapp.yml` is empty.
+- `dash_app/Dockerfile` still contains the ingestion Lambda template.
+- A production server entry point and runtime dependencies still need
+  to be added.
 
-See [ingestion/README.md](ingestion/README.md) for the data structure, local
-setup, deployment, and verification steps.
+Docker Desktop is not required for the intended GitHub Actions deployment.
 
-## Local development
+## Local setup
 
-From the repository root in PowerShell, install the development dependencies:
+Use Python 3.13 to match the CI environment.
+
+From the repository root, install both sets of dependencies:
 
 ```powershell
-python -m pip install -r requirements-dev.txt
+python -m pip install -r requirements-dev.txt -r dash_app/requirements.txt
 ```
 
-Run the tests:
+Configure AWS credentials using your normal local authentication method.
+The dashboard requires permission to read:
+
+```text
+s3://webgis-population-app/data/enriched_population_data.json
+```
+
+Start the application:
+
+```powershell
+python -m dash_app.app
+```
+
+Open http://127.0.0.1:8050.
+
+The current entry point runs Dash in development mode. It is intended for
+local use, not public hosting.
+
+## Tests and CI
+
+Run the test suite from the repository root:
 
 ```powershell
 python -m pytest -q
 ```
 
-The CI workflow runs tests automatically on pushes and on pull requests
-targeting `main`. The manual ingestion deployment workflow calls the reusable
-CI workflow and waits for it to succeed before building and deploying the image.
+Tests cover ingestion, metadata enrichment, S3 loading, data preparation,
+figure generation and country-selection callbacks.
 
-## Data quality and interpretation
+GitHub Actions runs CI on pushes and pull requests targeting `main`.
+The ingestion deployment also calls the reusable CI workflow.
 
-- The World Bank API includes both individual economies and aggregate groups.
-  These should be distinguished when comparing or summing populations.
-- World Bank economies can include territories as well as sovereign countries.
-- Missing population values are retained as `None` in Python and `null` in JSON.
-- Records without matching country metadata receive `null` for `region` and
-  `is_aggregate`.
-- Observation years are currently stored as strings.
-- Both requests use `per_page=3000` and retrieve all reported pages. Page and
-  total-count checks catch some incomplete responses, but do not guarantee a
-  consistent source snapshot or independently validate the data.
+**Current CI dependency gap:** CI installs only `requirements-dev.txt`,
+which does not yet include the dashboard requirements. This must be
+corrected so that dashboard tests have their dependencies available in
+a clean CI environment.
 
-## Technology
+Automated Python tests do not replace browser checks for globe rotation,
+click interactions, resizing and chart layout.
 
-| Component | Purpose |
+## Data interpretation and limitations
+
+- World Bank economies include territories as well as sovereign countries.
+- Aggregate records remain in the stored dataset but are excluded from
+  the dashboard's individual-economy views.
+- Missing population values are preserved as null and are not treated
+  as zero.
+- Records without matching metadata have null region and aggregate fields.
+- Observation years are stored as strings in JSON and converted to integers
+  for the dashboard.
+- The selected economy's latest available observation may differ from the
+  year shown on the globe. Both years are labelled.
+- Pagination checks help detect incomplete retrievals but do not validate
+  every value or guarantee a consistent snapshot across API requests.
+- Ingestion retries, partial-run recovery and Great Expectations validation
+  are not implemented.
+- The dashboard loads data at startup. Restart it after ingestion to load
+  a newly published dataset.
+- Bucket, object key and region settings are currently defined in code.
+- Browser layout and interaction checks remain part of manual verification.
+
+## Repository structure
+
+| Path | Purpose |
 | --- | --- |
-| Python, urllib, and JSON | API requests and data transformation |
-| Boto3 | Writing the output to Amazon S3 |
-| pytest | Automated testing |
-| Docker | Packaging the ingestion function |
-| Amazon ECR | Storing the ingestion container image |
-| AWS Lambda | Running the ingestion pipeline |
-| Amazon S3 | Storing the enriched JSON |
-| GitHub Actions | Continuous integration and manual deployment |
-| Dash and Plotly | Planned interactive application and visualisations |
+| `ingestion/` | API retrieval, enrichment, S3 writing and Lambda packaging |
+| `dash_app/` | Dashboard, charts, callbacks, CSS and dashboard tests |
+| `tests/` | Ingestion tests |
+| `.github/workflows/ci.yml` | Reusable Python CI workflow |
+| `.github/workflows/deploy_ingestion.yml` | Manual ingestion deployment |
+| `.github/workflows/deploy_dashapp.yml` | Dashboard deployment placeholder |
+| `requirements-dev.txt` | Development and test dependencies |
 
-## Roadmap
+## Next steps
 
-- [x] Retrieve and enrich historical population observations from 1970 onward.
-- [x] Add a transformation unit test and automated CI.
-- [x] Build and test a Lambda-compatible Docker image locally.
-- [x] Deploy the ingestion image to ECR and Lambda.
-- [x] Write enriched JSON to S3.
-- [x] Add a manually triggered ingestion deployment workflow.
-- [x] Handle API pagination and check reported record totals.
-- [x] Preserve three-character country codes for map matching.
-- [ ] Add retry and partial-run recovery if needed.
-- [ ] Profile the dataset and implement a Great Expectations validation suite.
-- [ ] Move bucket configuration outside the Python code.
-- [ ] Build an interactive Dash application.
-- [ ] Deploy the interactive application.
+- [ ] Include dashboard dependencies in CI.
+- [ ] Replace the dashboard Dockerfile with web-app packaging.
+- [ ] Add the production server entry point and dependencies.
+- [ ] Implement dashboard deployment through GitHub Actions.
+- [ ] Configure dashboard AWS resources and S3 read permissions.
+- [ ] Verify the deployed application and add its live URL.
+- [ ] Add a screenshot of the verified dashboard.
+- [ ] Add broader data-quality checks.
 
 ## Data source
 
-Population data and metadata come from the
+Population observations use the World Bank indicator
+[SP.POP.TOTL — Population, total](https://data.worldbank.org/indicator/SP.POP.TOTL).
+
+API documentation:
 [World Bank Indicators API](https://datahelpdesk.worldbank.org/knowledgebase/topics/125589-developer-information).
 
-Consult the World Bank's attribution and usage terms when publishing the data.
+Consult the World Bank's attribution and usage terms when publishing or
+redistributing the data.
