@@ -17,6 +17,7 @@ def create_population_globe(map_records, year):
     positive_population = map_data["population"].where(
         map_data["population"] > 0
     )
+
     map_data["log_population"] = np.log10(positive_population)
 
     fig = px.choropleth(
@@ -32,14 +33,30 @@ def create_population_globe(map_records, year):
             "date": True,
             "log_population": False,
         },
-        title=f"Population by economy — {year}",
-        labels={"population": "Population",
-                "country_iso3": "ISO3 code",
-                "date": "Year"},
+        labels={
+            "population": "Population",
+            "country_iso3": "ISO3 code",
+            "date": "Year",
+        },
+    )
+
+    fig.update_layout(
+        title=None,
+        uirevision="population-globe",
     )
 
     fig.update_coloraxes(
-        colorbar_title="Population",
+        colorbar_orientation="v",
+        colorbar_x=-0.02,
+        colorbar_xanchor="right",
+        colorbar_y=0.5,
+        colorbar_yanchor="middle",
+        colorbar_len=0.75,
+        colorbar_thickness=14,
+        colorbar_title=dict(
+            text="Population",
+            side="top",
+        ),
         colorbar_tickvals=[4, 5, 6, 7, 8, 9],
         colorbar_ticktext=["10K", "100K", "1M", "10M", "100M", "1B"],
     )
@@ -47,18 +64,31 @@ def create_population_globe(map_records, year):
     fig.update_geos(
         projection_type="orthographic",
         showland=True,
-        landcolor="lightgrey",
+        landcolor="#e8e8ee",
+        bgcolor="white",
+        showocean=True,
+        oceancolor="#f7f8fb",
+        showcountries=True,
+        countrycolor="white",
+    )
+
+    fig.update_layout(
+        template="plotly_white",
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+        font=dict(
+            family="Segoe UI, Arial, sans-serif",
+            color="#555568",
+        ),
+        margin=dict(l=95, r=15, t=25, b=25),
+        autosize=True,
     )
 
     return fig
 
 
 def create_population_history_chart(history):
-    """Create a population-over-time chart for one economy.
-
-    Expects records for one economy, with country, date and population
-    columns. Returns a Plotly figure.
-    """
+    """Create a population history chart for one economy."""
     country_name = history["country"].iloc[0]
 
     fig = px.line(
@@ -70,7 +100,20 @@ def create_population_history_chart(history):
             "date": "Year",
             "population": "Population",
         },
-        markers=True,
+        markers=False,
+        color_discrete_sequence=["#440154"],
+    )
+
+    fig.update_layout(
+        template="plotly_white",
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+        font=dict(
+            family="Segoe UI, Arial, sans-serif",
+            color="#555568",
+        ),
+        margin=dict(l=45, r=20, t=45, b=45),
+        autosize=True,
     )
 
     return fig
