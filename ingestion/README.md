@@ -175,6 +175,13 @@ and which should produce a warning.
 
 **Status: planned.** Great Expectations validation is not yet implemented.
 
+## Dashboard consumer
+
+The [Dash application](../dash_app/README.md) now reads the enriched S3 object and
+provides a globe and country history charts. It uses a separate read-only execution
+role and deployment workflow. The dashboard caches data per worker; redeploy it
+after ingestion when an immediate refresh is required.
+
 ## Future improvements
 
 - Add retries and consider recovery of partial runs.

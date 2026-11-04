@@ -27,3 +27,6 @@ jobs:
 
       - name: Run tests
         run: python -m pytest -q
+
+      - name: Build dashboard container
+        run: docker build --platform linux/amd64 -f dash_app/Dockerfile -t population-dashboard:ci .

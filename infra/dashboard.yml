@@ -1,0 +1,78 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Public population dashboard on Lambda; private S3 dataset remains private.
+Parameters:
+  ImageUri:
+    Type: String
+  PopulationBucket:
+    Type: String
+    Default: webgis-population-app
+  PopulationKey:
+    Type: String
+    Default: data/enriched_population_data.json
+Resources:
+  DashboardRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ReadPopulationAndWriteLogs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub arn:${AWS::Partition}:s3:::${PopulationBucket}/${PopulationKey}
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${AWS::StackName}:*
+  DashboardLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${AWS::StackName}
+      RetentionInDays: 14
+  Dashboard:
+    Type: AWS::Lambda::Function
+    DependsOn: DashboardLogs
+    Properties:
+      FunctionName: !Ref AWS::StackName
+      PackageType: Image
+      Architectures: [x86_64]
+      Code:
+        ImageUri: !Ref ImageUri
+      Role: !GetAtt DashboardRole.Arn
+      MemorySize: 1024
+      Timeout: 60
+      Environment:
+        Variables:
+          POPULATION_BUCKET: !Ref PopulationBucket
+          POPULATION_KEY: !Ref PopulationKey
+  DashboardUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !Ref Dashboard
+      AuthType: NONE
+      InvokeMode: BUFFERED
+  PublicUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Dashboard
+      Action: lambda:InvokeFunctionUrl
+      Principal: '*'
+      FunctionUrlAuthType: NONE
+  PublicInvocationPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Dashboard
+      Action: lambda:InvokeFunction
+      Principal: '*'
+      InvokedViaFunctionUrl: true
+Outputs:
+  DashboardUrl:
+    Description: Public dashboard URL
+    Value: !GetAtt DashboardUrl.FunctionUrl

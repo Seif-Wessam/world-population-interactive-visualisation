@@ -18,7 +18,7 @@ def register_callbacks(app, population_data):
     )
     def update_country_history(click_data, reset_clicks):
         if ctx.triggered_id == "reset-history":
-            return {}, {"display": "none"}, ""
+            return {}, {"display": "none"}, "Select an economy on the globe to reveal its population history."
 
         if not click_data or not click_data.get("points"):
             return no_update, no_update, no_update

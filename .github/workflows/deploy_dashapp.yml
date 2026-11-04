@@ -1,0 +1,76 @@
+name: Deploy dashboard to AWS
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-dashboard-dev
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: eu-north-1
+  ECR_REPOSITORY: population-dashboard
+  STACK_NAME: population-dashboard-dev
+  IMAGE_TAG: gha-${{ github.run_id }}-${{ github.run_attempt }}
+
+jobs:
+  run_ci:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  deploy:
+    needs: run_ci
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v3
+      - name: Authenticate with AWS
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_DASH_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Prepare image repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          account_id=$(aws sts get-caller-identity --query Account --output text)
+          registry="$account_id.dkr.ecr.$AWS_REGION.amazonaws.com"
+          echo "ECR_REGISTRY=$registry" >> "$GITHUB_ENV"
+          if ! aws ecr describe-repositories --repository-names "$ECR_REPOSITORY" > /dev/null 2>&1; then
+            aws ecr create-repository --repository-name "$ECR_REPOSITORY" --image-tag-mutability IMMUTABLE --image-scanning-configuration scanOnPush=true
+          fi
+          aws ecr get-login-password | docker login --username AWS --password-stdin "$registry"
+      - name: Build and upload dashboard
+        run: |
+          docker buildx build --platform linux/amd64 --provenance=false --push \
+            --file dash_app/Dockerfile \
+            --tag "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" .
+      - name: Deploy dashboard infrastructure and image
+        run: |
+          aws cloudformation deploy \
+            --template-file infra/dashboard.yml \
+            --stack-name "$STACK_NAME" \
+            --capabilities CAPABILITY_IAM \
+            --no-fail-on-empty-changeset \
+            --parameter-overrides \
+              ImageUri="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" \
+              PopulationBucket="${POPULATION_BUCKET:-webgis-population-app}" \
+              PopulationKey="${POPULATION_KEY:-data/enriched_population_data.json}"
+        env:
+          POPULATION_BUCKET: ${{ vars.POPULATION_BUCKET }}
+          POPULATION_KEY: ${{ vars.POPULATION_KEY }}
+      - name: Verify live dashboard
+        run: |
+          url=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
+            --query "Stacks[0].Outputs[?OutputKey=='DashboardUrl'].OutputValue | [0]" --output text)
+          curl --fail --retry 5 --retry-all-errors --retry-delay 5 --max-time 90 "${url}healthz"
+          curl --fail --retry 3 --retry-all-errors --max-time 90 "${url}_dash-layout" --output /tmp/layout.json
+          python -c 'import json; d=json.load(open("/tmp/layout.json")); assert "population-globe" in json.dumps(d)'
+          echo "### Dashboard deployed" >> "$GITHUB_STEP_SUMMARY"
+          echo "$url" >> "$GITHUB_STEP_SUMMARY"

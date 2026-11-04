@@ -24,7 +24,7 @@ def create_population_globe(map_records, year):
         locations="country_iso3",
         locationmode="ISO-3",
         color="log_population",
-        color_continuous_scale="Viridis",
+        color_continuous_scale=["#e5efc6", "#95c7a2", "#3f927c", "#164e47"],
         hover_name="country",
         hover_data={
             "country_iso3": True,
@@ -38,6 +38,8 @@ def create_population_globe(map_records, year):
                 "date": "Year"},
     )
 
+    fig.update_layout(title=None)
+
     fig.update_coloraxes(
         colorbar_title="Population",
         colorbar_tickvals=[4, 5, 6, 7, 8, 9],
@@ -47,9 +49,16 @@ def create_population_globe(map_records, year):
     fig.update_geos(
         projection_type="orthographic",
         showland=True,
-        landcolor="lightgrey",
+        landcolor="#e7ece6",
+        bgcolor="rgba(0,0,0,0)", showocean=True, oceancolor="#f4f8f5",
+        showcountries=True, countrycolor="#ffffff", coastlinecolor="#c5d5c9",
     )
 
+    fig.update_layout(
+        template="plotly_white", paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)", font={"family": "Arial", "color": "#173a36"},
+        margin={"l": 15, "r": 15, "t": 45, "b": 35},
+    )
     return fig
 
 
@@ -70,7 +79,13 @@ def create_population_history_chart(history):
             "date": "Year",
             "population": "Population",
         },
-        markers=True,
+        markers=False,
+        color_discrete_sequence=["#347e68"],
     )
 
+    fig.update_layout(
+        template="plotly_white", paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)", font={"family": "Arial", "color": "#173a36"},
+        margin={"l": 15, "r": 15, "t": 45, "b": 35},
+    )
     return fig
