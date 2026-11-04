@@ -1,0 +1,76 @@
+name: Build and push dashboard image
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: dashboard-image-build
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: eu-north-1
+  ECR_REGISTRY: 411145869013.dkr.ecr.eu-north-1.amazonaws.com
+  ECR_REPOSITORY: population-dashboard
+  IMAGE_TAG: gha-${{ github.run_id }}-${{ github.run_attempt }}
+
+jobs:
+  run_ci:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  build_and_push:
+    needs: run_ci
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Authenticate with AWS
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log Docker into ECR
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          aws ecr get-login-password --region "$AWS_REGION" |
+            docker login \
+              --username AWS \
+              --password-stdin "$ECR_REGISTRY"
+
+      - name: Build and push dashboard image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker buildx build \
+            --platform linux/amd64 \
+            --provenance=false \
+            --file dash_app/Dockerfile \
+            --tag "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" \
+            --push \
+            .
+
+      - name: Record image URI
+        shell: bash
+        run: |
+          {
+            echo "### Dashboard image uploaded"
+            echo
+            echo "\`$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG\`"
+            echo
+            echo "Image uploaded to ECR. Dashboard Lambda deployment is not included yet."
+          } >> "$GITHUB_STEP_SUMMARY"

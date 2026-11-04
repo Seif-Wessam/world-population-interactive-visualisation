@@ -1,4 +1,7 @@
 dash
 pandas
 plotly 
+numpy
+boto3
+gunicorn
 nbformat>=4.2.0

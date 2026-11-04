@@ -51,6 +51,8 @@ map_data = economies.loc[economies["date"] == latest_year]
 globe = create_population_globe(map_data, latest_year)
 
 app = Dash(__name__, title="World Population Explorer")
+server = app.server
+
 app.layout = create_layout(globe, latest_year)
 
 register_callbacks(app, population_data)
