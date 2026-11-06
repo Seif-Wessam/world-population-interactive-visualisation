@@ -4,10 +4,9 @@
 
 World Population Explorer combines a Python data ingestion pipeline, metadata enrichment, Amazon S3 storage, and an interactive Dash/Plotly dashboard. Visitors can rotate a globe, select an economy, and explore its population history.
 
-**Live dashboard:**[Live dashboard](https://kgywd5fzmf347xiiw2rlz73hm40eiyby.lambda-url.eu-north-1.on.aws/)  
-[Live Demo](
-https://github.com/user-attachments/assets/b9c95f83-1d33-4023-b44e-0b4245502bc6
-)
+**Live dashboard:**
+[Live dashboard](https://kgywd5fzmf347xiiw2rlz73hm40eiyby.lambda-url.eu-north-1.on.aws/)  
+[Live Demo](https://github.com/user-attachments/assets/b9c95f83-1d33-4023-b44e-0b4245502bc6)
 
 
 
