@@ -1,0 +1,10 @@
+openai
+mcp
+pydantic
+python-dotenv
+boto3
+duckdb
+pandas
+pyarrow
+sqlglot
+pytest
