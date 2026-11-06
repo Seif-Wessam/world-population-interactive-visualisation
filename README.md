@@ -4,8 +4,12 @@
 
 World Population Explorer combines a Python data ingestion pipeline, metadata enrichment, Amazon S3 storage, and an interactive Dash/Plotly dashboard. Visitors can rotate a globe, select an economy, and explore its population history.
 
-**Live dashboard:** _Add the public AWS Lambda Function URL here_  
-**Source code:** [GitHub repository](https://github.com/Seif-Wessam/world-population-interactive-visualisation)
+**Live dashboard:**[Live dashboard](https://kgywd5fzmf347xiiw2rlz73hm40eiyby.lambda-url.eu-north-1.on.aws/)  
+[Live Demo]([https://github.com/Seif-Wessam/world-population-interactive-visualisation])
+
+
+
+
 
 > **Deployment status:** The ingestion pipeline and interactive dashboard are both deployed on AWS. Dashboard container builds are automated through GitHub Actions; updating the dashboard Lambda to use a newly built image remains a manual deployment step.
 
