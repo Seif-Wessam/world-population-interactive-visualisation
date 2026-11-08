@@ -70,26 +70,29 @@
       background:radial-gradient(circle,rgba(84,113,218,.14) 0,transparent 66%); pointer-events:none; }
     .hero::after { content:""; position:absolute; z-index:-1; width:650px;height:650px; left:-400px;bottom:-390px;
       background:radial-gradient(circle,rgba(52,194,161,.08) 0,transparent 70%); pointer-events:none; }
-    .hero-layout { display:grid;grid-template-columns:1fr 1.05fr;gap:54px;align-items:center; }
-    .hero h1 { max-width:570px;font-size:clamp(3.1rem,5.8vw,5.25rem);margin:23px 0 21px;font-weight:850;line-height:1.065; }
-    .hero .lead { max-width:520px;font-size:1.07rem;line-height:1.75;margin-bottom:29px; }
-    .hero-cta { display:flex;flex-wrap:wrap;gap:12px; }
+    .hero-intro { max-width: 830px; margin: 0 auto; text-align: center; }
+    .hero h1 { max-width: 830px; font-size: clamp(3.1rem, 6vw, 5.25rem); margin: 23px auto 21px; font-weight: 850; line-height: 1.065; }
+    .hero .lead { max-width: 710px; font-size: 1.07rem; line-height: 1.75; margin: 0 auto 29px; }
+    .hero-cta { display:flex;flex-wrap:wrap;gap:12px;justify-content:center; }
     .hero-note { margin-top:22px;font-size:.79rem;color:var(--muted-2); }
-    .hero-art { border:1px solid rgba(147,181,234,.20);background:linear-gradient(160deg,#152541 1%,#0a1223 68%);
-      position:relative; overflow:hidden; height:470px; border-radius:26px; box-shadow:0 32px 100px rgba(0,0,0,.26); }
-    .art-grid { position:absolute;inset:0; opacity:.38; background-image:linear-gradient(rgba(111,145,202,.085) 1px,transparent 1px),linear-gradient(90deg,rgba(111,145,202,.085) 1px,transparent 1px); background-size:40px 40px; mask-image:linear-gradient(to bottom,#000 25%,transparent 100%); }
-    .art-top { position:absolute;left:24px;right:24px;top:24px;display:flex;justify-content:space-between;align-items:center;z-index:2; }
-    .art-tag { border:1px solid rgba(159,187,232,.2);background:#0b172c; border-radius:6px; padding:6px 9px; font-size:.66rem; color:#bacde6;letter-spacing:.09em;text-transform:uppercase; font-weight:800; }
-    .art-dots { display:flex;gap:6px; }
-    .art-dots span { width:7px;height:7px;border-radius:50%;background:#527090; }
-    .globe-svg { position:absolute;width:88%;height:88%;left:6%;top:8%;filter:drop-shadow(0 26px 40px rgba(3,8,22,.6)); }
-    .art-card { position:absolute;bottom:29px;left:26px;right:26px;display:flex;justify-content:space-between;gap:15px;align-items:center;
-      padding:16px 18px;background:rgba(9,20,39,.86);backdrop-filter:blur(12px);border:1px solid rgba(156,187,230,.18);border-radius:13px; }
-    .art-card strong { display:block;font-size:.88rem;letter-spacing:-.01em; }
-    .art-card small { display:block;color:#91a6c4;font-size:.73rem;margin-top:3px; }
-    .art-mini { display:flex;gap:4px;align-items:end;height:35px; }
-    .art-mini i { display:block;width:7px;border-radius:3px 3px 0 0;background:linear-gradient(#64e3c9,#5376e9); }
-    .art-credit { position:absolute;bottom:0;right:0;left:0;text-align:center;font-size:.65rem;color:#6d809d;transform:translateY(21px); }
+    .hero-art {
+      width: 100%;
+      height: auto;
+      margin-top: 42px;
+      border: 1px solid rgba(147,181,234,.25);
+      border-radius: 22px;
+      background: #f3f5fa;
+      overflow: hidden;
+      box-shadow: 0 28px 75px rgba(0,0,0,.28);
+    }
+    .hero-shot {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    .hero-caption { text-align:center; margin:15px 0 0; color:var(--muted-2); font-size:.8rem; }
+    .hero-shot-link { display:block; }
+    .hero-shot-link:focus-visible { outline:3px solid var(--teal); outline-offset:4px; }
     .metrics { display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:34px; }
     .metric { padding:21px 24px;border:1px solid var(--line);border-radius:16px;background:rgba(19,31,53,.56); }
     .metric b { font-size:1.38rem;line-height:1.2;letter-spacing:-.035em;display:block; }
@@ -126,21 +129,8 @@
     .detail { padding:22px;border-left:2px solid rgba(91,229,203,.6);background:rgba(15,25,42,.55);border-radius:0 12px 12px 0; }
     .detail strong { display:block;font-size:.88rem;margin-bottom:9px; }
     .detail p { font-size:.82rem;line-height:1.7;margin:0; }
-    .showcase { display:grid;grid-template-columns:1fr .75fr;gap:26px;align-items:stretch; }
-    .showcase-visual { border:1px solid rgba(154,187,236,.20);border-radius:20px;padding:27px;background:linear-gradient(145deg,#152641,#0e182b);min-height:380px; }
-    .viz-header { display:flex;align-items:center;justify-content:space-between;margin-bottom:28px;gap:12px; }
-    .viz-header strong { font-size:.82rem;letter-spacing:.015em; }
-    .viz-header span { font-size:.7rem;color:#9cbbda; }
-    .chart-wrap { position:relative; }
-    .line-chart { width:100%;height:auto;display:block; }
-    .viz-legend { display:flex;justify-content:space-between;color:#849abb;font-size:.68rem;margin-top:2px; }
-    .viz-footer { display:flex;gap:9px;flex-wrap:wrap;margin-top:22px; }
-    .viz-footer span { border-radius:7px;padding:6px 10px;background:#1b3048;color:#c7d7ee;font-size:.68rem;font-weight:650; }
-    .showcase-copy { padding:9px 0;display:flex;flex-direction:column;justify-content:center;align-items:flex-start; }
-    .showcase-copy h3 { font-size:1.75rem;margin:10px 0 14px; }
-    .showcase-copy p { font-size:.94rem;line-height:1.75; }
-    .showcase-copy .button { margin-top:10px; }
-    .fine-print { font-size:.76rem;line-height:1.75;color:var(--muted-2);margin-top:18px; }
+    .engineering-demo { margin:26px 0 0; font-size:.86rem; }
+    .engineering-demo a { color:var(--teal);font-weight:750;text-decoration:underline;text-underline-offset:3px; }
     .status-grid { display:grid;grid-template-columns:repeat(3,1fr);gap:17px; }
     .status-card { border:1px solid var(--line);border-radius:17px;background:#111d31;padding:25px; }
     .status-card .tag { display:inline-flex;border-radius:100px;padding:5px 10px;font-size:.68rem;font-weight:800;letter-spacing:.055em;text-transform:uppercase;margin-bottom:20px; }
@@ -164,13 +154,8 @@
     @media (max-width:980px) {
       .nav-links { gap:16px; }
       .hero { padding:75px 0 66px; }
-      .hero-layout { grid-template-columns:1fr;gap:43px; }
-      .hero h1 { max-width:780px; }
-      .hero-art { height:440px;max-width:690px;width:100%;margin-inline:auto; }
       .metrics { grid-template-columns:repeat(2,1fr); }
       .architecture { grid-template-columns:1fr; }
-      .showcase { grid-template-columns:1fr; }
-      .showcase-copy { padding:12px 2px; }
     }
     @media (max-width:700px) {
       .container { width:min(calc(100% - 32px),var(--max)); }
@@ -180,10 +165,8 @@
       .hero { padding:59px 0 55px; }
       .hero h1 { font-size:clamp(2.75rem,12vw,4rem); }
       .hero .lead { font-size:.98rem; }
-      .hero-art { height:340px; }
-      .globe-svg { width:100%;height:94%;left:0;top:2%; }
-      .art-card { left:13px;right:13px;bottom:13px;padding:12px 13px; }
-      .art-top { top:15px;left:15px;right:15px; }
+      .hero-art { margin-top:30px; border-radius:14px; }
+      .hero-caption { font-size:.74rem; }
       .metrics { gap:10px; }
       .metric { padding:18px 16px; }
       .metric b { font-size:1.08rem; }
@@ -225,24 +208,24 @@
   <main id="top">
     <div class="container">
       <section class="hero" aria-labelledby="hero-title">
-        <div class="hero-layout">
-          <div>
-            <span class="pill"><span class="status-dot"></span> DEPLOYED · OPEN SOURCE</span>
-            <h1 id="hero-title">World Population <span class="gradient-text">Explorer.</span></h1>
-            <p class="lead">Explore how populations have changed across the world through an interactive globe and historical trends — powered by an end-to-end World Bank data pipeline and a serverless AWS deployment.</p>
-            <div class="hero-cta">
-              <a class="button primary" href="https://kgywd5fzmf347xiiw2rlz73hm40eiyby.lambda-url.eu-north-1.on.aws/" target="_blank" rel="noopener noreferrer">Explore the live dashboard <span aria-hidden="true">↗</span></a>
-              <a class="button secondary" href="https://github.com/Seif-Wessam/world-population-interactive-visualisation" target="_blank" rel="noopener noreferrer">View source code <span aria-hidden="true">↗</span></a>
-            </div>
-            <p class="hero-note">Built by Seif Hamed · Python · Plotly Dash · AWS Lambda</p>
+        <div class="hero-intro">
+          <span class="pill"><span class="status-dot"></span> DEPLOYED · OPEN SOURCE</span>
+          <h1 id="hero-title">World Population <span class="gradient-text">Explorer.</span></h1>
+          <p class="lead">Explore how populations have changed across the world through an interactive globe and historical trends — powered by an end-to-end World Bank data pipeline and a serverless AWS deployment.</p>
+          <div class="hero-cta">
+            <a class="button primary" href="https://kgywd5fzmf347xiiw2rlz73hm40eiyby.lambda-url.eu-north-1.on.aws/" target="_blank" rel="noopener noreferrer">Explore the live dashboard <span aria-hidden="true">↗</span></a>
+            <a class="button secondary" href="https://github.com/Seif-Wessam/world-population-interactive-visualisation" target="_blank" rel="noopener noreferrer">View source code <span aria-hidden="true">↗</span></a>
           </div>
-          <div>
-            <div class="hero-art" role="img" aria-label="Screenshot of the World Population Explorer dashboard showing the interactive globe, Egypt selected, and a population history chart.">
-              <img class="hero-shot" src="assets/world-population-explorer-screenshot.png" alt="World Population Explorer application screenshot" />
-              <div class="hero-overlay"><strong>Real application screenshot</strong><small>Interactive globe · country details · historical population trend</small></div>
-            </div></div>
-          </div>
+          <p class="hero-note">Built by Seif Hamed · Python · Plotly Dash · AWS Lambda</p>
         </div>
+        <figure style="margin:0">
+          <div class="hero-art">
+            <a class="hero-shot-link" href="assets/world-population-explorer-screenshot.png" target="_blank" rel="noopener" aria-label="Open the full-size dashboard screenshot in a new tab">
+              <img class="hero-shot" src="assets/world-population-explorer-screenshot.png" alt="World Population Explorer dashboard with a globe coloured by population on the left and Egypt's historical population chart on the right." width="1893" height="1005" fetchpriority="high" decoding="async" />
+            </a>
+          </div>
+          <figcaption class="hero-caption">Actual application screenshot · Select a country on the live globe to explore its population history · Click to view full size</figcaption>
+        </figure>
         <div class="metrics" aria-label="Project at a glance">
           <div class="metric"><b>1970 → latest</b><span>World Bank observations, where available</span></div>
           <div class="metric"><b>200+ economies</b><span>Mapped in the latest available view</span></div>
@@ -297,28 +280,12 @@
     <section class="section alt" id="engineering" aria-labelledby="engineering-title">
       <div class="container">
         <div class="section-head"><span class="eyebrow">Engineering decisions</span><h2 id="engineering-title">More than a <span class="gradient-text">front-end visualization.</span></h2><p>The project combines ingestion safeguards, runtime architecture, automated tests, and cloud deployments.</p></div>
-        <div class="showcase">
-          <div class="showcase-visual" role="img" aria-label="Illustrative line chart representing historical population trends, not actual observations.">
-            <div class="viz-header"><strong>Historical population explorer</strong><span>Illustrative chart</span></div>
-            <div class="chart-wrap">
-              <svg class="line-chart" viewBox="0 0 570 238" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                <defs><linearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#68dcc7" stop-opacity=".35"/><stop offset="1" stop-color="#68dcc7" stop-opacity="0"/></linearGradient></defs>
-                <g stroke="#7c91b1" stroke-opacity=".22" stroke-width="1"><path d="M32 25H548M32 70H548M32 115H548M32 160H548M32 205H548"/></g>
-                <path d="M35 182C70 180 82 171 116 167S180 153 211 141S267 139 300 115S359 109 392 87S450 69 480 49S530 29 548 24L548 205H35Z" fill="url(#chartFill)"/>
-                <path d="M35 182C70 180 82 171 116 167S180 153 211 141S267 139 300 115S359 109 392 87S450 69 480 49S530 29 548 24" fill="none" stroke="#77e6d2" stroke-width="3.4" stroke-linecap="round"/>
-                <circle cx="548" cy="24" r="5.5" fill="#b0f9e9"/><circle cx="548" cy="24" r="12" fill="none" stroke="#80e4d0" stroke-opacity=".32"/>
-              </svg>
-              <div class="viz-legend"><span>1970</span><span>Historical observations</span><span>Latest available year</span></div>
-            </div>
-            <div class="viz-footer"><span>Population history</span><span>World Bank · SP.POP.TOTL</span><span>Interactive selection</span></div>
-          </div>
-          <div class="showcase-copy"><span class="eyebrow">Watch or try</span><h3>See the project in action.</h3><p>Open the live dashboard to rotate the globe, select an economy, and inspect historical population trends. For a quick walkthrough, watch the demo video linked in the repository.</p><a class="button primary" href="https://kgywd5fzmf347xiiw2rlz73hm40eiyby.lambda-url.eu-north-1.on.aws/" target="_blank" rel="noopener noreferrer">Launch the dashboard <span aria-hidden="true">↗</span></a><a class="button secondary" style="margin-top:12px" href="https://github.com/user-attachments/assets/b9c95f83-1d33-4023-b44e-0b4245502bc6" target="_blank" rel="noopener noreferrer">Watch the demo video <span aria-hidden="true">↗</span></a><p class="fine-print">The live app runs on AWS Lambda, so the first request after an idle period may take longer while the container starts.</p></div>
-        </div>
         <div class="details">
           <div class="detail"><strong>Careful data handling</strong><p>API pagination and reported record totals are checked. Missing observations stay <code>null</code> instead of being treated as zero.</p></div>
           <div class="detail"><strong>Efficient interactions</strong><p>The dashboard loads prepared S3 data at Python process startup, then filters it in memory for country-selection callbacks.</p></div>
           <div class="detail"><strong>Versioned cloud builds</strong><p>GitHub Actions runs Python tests and builds Docker images in ECR. The final dashboard Lambda image update is currently manual.</p></div>
         </div>
+        <p class="engineering-demo">Want to see the application in action? <a href="https://github.com/user-attachments/assets/b9c95f83-1d33-4023-b44e-0b4245502bc6" target="_blank" rel="noopener noreferrer">Watch the recorded demo <span aria-hidden="true">↗</span></a></p>
       </div>
     </section>
 
