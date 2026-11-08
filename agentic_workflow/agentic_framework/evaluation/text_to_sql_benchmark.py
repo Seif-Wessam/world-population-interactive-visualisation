@@ -1,7 +1,7 @@
 
 import pandas as pd
 
-from analytics import (
+from agentic_workflow.agentic_framework.analytics import (
     load_population_data,
     create_connection,
     get_schema,

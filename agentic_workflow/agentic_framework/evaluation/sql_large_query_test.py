@@ -1,4 +1,4 @@
-from analytics import create_connection, execute_query, load_population_data
+from agentic_workflow.agentic_framework.analytics import create_connection, execute_query, load_population_data
 
 
 df = load_population_data()
