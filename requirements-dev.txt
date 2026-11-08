@@ -1,4 +1,5 @@
 -r ingestion/requirements.txt
 -r dash_app/requirements.txt
+-r agentic_workflow/agentic_framework/requirements.txt
 pytest
 boto3[crt]>=1.41.0
