@@ -66,6 +66,14 @@ This is a hybrid ELT/ETL design because normalized data is prepared before DuckD
 
 ---
 
+## ADR-007 — Separate indicator metadata from observations
+- Decision: Store indicator definitions, units and source information separately from numerical observations.
+- Rationale: Avoid repeated metadata, provide Qwen with reliable indicator descriptions, and support a standardized analytical schema.
+- Trade-off: Some queries require joining observations with metadata.
+- Important exception: Preserve observation-level units and multipliers when the source data requires them.
+
+---
+
 ## Template for future decisions
 
 ### ADR-XXX — Decision title
