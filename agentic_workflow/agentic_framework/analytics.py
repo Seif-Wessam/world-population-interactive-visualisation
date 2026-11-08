@@ -1,3 +1,5 @@
+from agentic_workflow.agentic_framework.sql_guard import validate_sql
+
 
 import json
 
@@ -84,8 +86,7 @@ def get_schema(con) -> str:
     return "\n\n".join(definitions)
 
 
-from sql_guard import validate_sql
-MAX_ROWS = 1000
+
 
 def execute_query(con, sql: str) -> pd.DataFrame:
     """Validate SQL and return at most 1000 result rows."""
