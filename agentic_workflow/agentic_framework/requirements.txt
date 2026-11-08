@@ -11,3 +11,4 @@ pytest
 python-dotenv
 huggingface_hub
 mcp>=2.0,<3.0
+sqlglot

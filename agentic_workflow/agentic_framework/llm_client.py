@@ -1,6 +1,7 @@
 
 import os
 from pathlib import Path
+from urllib import response
 
 from dotenv import load_dotenv
 from huggingface_hub import InferenceClient
@@ -18,24 +19,33 @@ client = InferenceClient(
     provider="deepinfra"
 )
 
+
 def get_model_response(prompt: str) -> str:
     """
-    Get a response from the model for a given prompt.
-
-    Args:
-        prompt (str): The input prompt to send to the model.
+    Send a prompt to Qwen and return its text response.
     """
     response = client.chat.completions.create(
         model=model,
         messages=[
-            {
-                "role": "user",
-                "content": prompt
-            }
+            {"role": "user", "content": prompt}
         ],
-        max_tokens=256
+        max_tokens=512,
+        temperature=0.7,
+        extra_body={
+            "chat_template_kwargs": {
+                "enable_thinking": False
+            }
+        }
     )
-    return response.choices[0].message.content or ""
+
+    choice = response.choices[0]
+    content = choice.message.content or ""
+
+    if not content.strip():
+        raise RuntimeError("Qwen returned an empty response.")
+
+    return content
+
 
 
 
