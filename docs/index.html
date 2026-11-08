@@ -1,314 +1,367 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#0b1120" />
-  <meta name="description" content="Explore historical population data from the World Bank on an interactive globe. Discover the Python, Dash, and AWS serverless architecture behind World Population Explorer." />
-  <meta property="og:type" content="website" />
-  <meta property="og:title" content="World Population Explorer | Interactive Globe & Serverless Data Engineering" />
-  <meta property="og:description" content="An interactive World Bank population dashboard built with Python, Dash, and AWS. Explore the live globe, architecture, and source code." />
-  <meta property="og:url" content="https://seif-wessam.github.io/world-population-interactive-visualisation/" />
-  <meta name="twitter:card" content="summary" />
-  <meta name="twitter:title" content="World Population Explorer" />
-  <meta name="twitter:description" content="Explore world population data through an interactive, serverless dashboard." />
-  <link rel="canonical" href="https://seif-wessam.github.io/world-population-interactive-visualisation/" />
-  <title>World Population Explorer — Interactive World Bank Data</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f7f2">
+  <meta name="description" content="World Population Explorer is a case study in building a World Bank data pipeline and interactive Dash globe on AWS Lambda. By Seif Hamed.">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="World Population Explorer — Seif Hamed">
+  <meta property="og:description" content="From the World Bank API to an interactive globe: the architecture, decisions and development notes behind a serverless data project.">
+  <meta property="og:image" content="https://seif-wessam.github.io/world-population-interactive-visualisation/assets/world-population-explorer-screenshot.png">
+  <meta property="og:image:alt" content="Screenshot of World Population Explorer, displaying a geographic population globe and Egypt's population history.">
+  <meta property="og:url" content="https://seif-wessam.github.io/world-population-interactive-visualisation/">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="canonical" href="https://seif-wessam.github.io/world-population-interactive-visualisation/">
+  <title>World Population Explorer — Seif Hamed</title>
   <style>
     :root {
-      color-scheme: dark;
-      --bg: #080e1b;
-      --surface: #101a2b;
-      --surface-2: #142036;
-      --line: rgba(191, 212, 244, 0.13);
-      --text: #f1f6ff;
-      --muted: #a6b7ce;
-      --muted-2: #778aa4;
-      --teal: #5be5cb;
-      --blue: #7a9cff;
-      --purple: #b49afa;
-      --radius: 22px;
-      --max: 1152px;
+      color-scheme: light;
+      --paper: #f7f7f2;
+      --white: #ffffff;
+      --ink: #182522;
+      --muted: #596560;
+      --quiet: #737d75;
+      --line: #cfd5ce;
+      --wash: #ecefe9;
+      --teal: #126c63;
+      --violet: #48226c;
+      --yellow: #e7cb35;
+      --width: 1184px;
     }
-    * { box-sizing: border-box; }
-    html { scroll-behavior: smooth; scroll-padding-top: 84px; }
-    body {
-      margin: 0; background: var(--bg); color: var(--text);
-      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      line-height: 1.62; -webkit-font-smoothing: antialiased;
+    *, *::before, *::after { box-sizing: border-box; }
+    html { scroll-behavior: smooth; scroll-padding-top: 48px; }
+    body { margin:0; background:var(--paper); color:var(--ink); font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; -webkit-font-smoothing:antialiased; line-height:1.5; }
+    a { color:inherit; text-underline-offset:.22em; }
+    a:focus-visible { outline:3px solid var(--teal); outline-offset:4px; }
+    .skip { position:absolute; left:12px; top:-80px; background:var(--ink);color:white;padding:10px 12px;z-index:99; }
+    .skip:focus { top:12px; }
+    .page { width:min(calc(100% - 80px),var(--width)); margin-inline:auto; }
+    .mono, .index, .kicker, .small-label, .diagram-note, .figure-caption, .meta-line, .section-num, .data-key, .timestamp, .foot-note, .status { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+    .kicker, .small-label, .section-num { font-size:.69rem; letter-spacing:.085em; text-transform:uppercase; }
+    .rule { height:1px; background:var(--line); }
+    .topbar { border-bottom:1px solid var(--line); }
+    .topbar-inner { min-height:77px; display:flex; justify-content:space-between; align-items:center; gap:18px; }
+    .signature { text-decoration:none; font-weight:750; font-size:.99rem; letter-spacing:-.025em; white-space:nowrap; }
+    .signature .slash { color:var(--teal); padding:0 7px; }
+    .signature .sub { font-weight:400; color:var(--muted); }
+    .topnav { display:flex; align-items:center; gap:29px; }
+    .topnav a { font-size:.79rem; font-weight:600; text-decoration:none; white-space:nowrap; }
+    .topnav a:hover, .link:hover, .footlinks a:hover { color:var(--teal); }
+    .topnav .external { border-bottom:1px solid var(--ink); padding-bottom:3px; }
+    .hero { padding-top:84px; }
+    .hero-topline { display:flex; justify-content:space-between; gap:16px; border-top:2px solid var(--ink); padding-top:13px; color:var(--teal); }
+    .hero-topline .kicker { margin:0; }
+    .hero-heading { display:grid; grid-template-columns:minmax(0,1.28fr) minmax(290px,.68fr); align-items:end; gap:45px; padding:55px 0 54px; }
+    h1,h2,h3,p { margin-top:0; }
+    h1,h2,h3 { letter-spacing:-.045em; }
+    h1 { font-size:clamp(3.8rem,7.8vw,7.6rem); line-height:.96; font-weight:690; letter-spacing:-.072em; margin:0; }
+    .title-line { display:block; }
+    .hero-intro { padding-bottom:9px; }
+    .hero-intro .lead { font-size:clamp(1.15rem,1.65vw,1.4rem); line-height:1.46; font-weight:430; letter-spacing:-.02em; max-width:420px; margin-bottom:20px; }
+    .hero-intro .support { font-size:.91rem; color:var(--muted); line-height:1.65; max-width:420px; margin-bottom:29px; }
+    .actions { display:flex; flex-wrap:wrap; gap:22px; align-items:center; }
+    .button { display:inline-flex; align-items:center; justify-content:center; min-height:43px; padding:11px 17px; border:1px solid var(--ink); background:var(--ink); color:#fff; font-size:.85rem; font-weight:620; text-decoration:none; transition:background .2s, color .2s; }
+    .button:hover { background:var(--teal); border-color:var(--teal); }
+    .link { display:inline-flex; align-items:center; gap:6px; font-size:.84rem; font-weight:660; text-decoration:none; border-bottom:1px solid currentColor; padding-bottom:3px; }
+    .project-figure { margin:0; }
+    .project-image { display:block; width:100%; height:auto; border:1px solid #d8ddd8; background:#fff; }
+    .project-image-link { display:block; overflow:hidden; }
+    .project-image-link:focus-visible { outline-offset:4px; }
+    .figure-caption { display:flex; justify-content:space-between; gap:16px; padding:14px 0 19px; font-size:.69rem; color:var(--muted); border-bottom:1px solid var(--line); }
+    .readout { display:grid; grid-template-columns:repeat(3,1fr); gap:0; border-bottom:1px solid var(--line); }
+    .readout-item { padding:21px 24px 21px 0; display:flex; gap:13px; }
+    .readout-item + .readout-item { padding-left:28px; border-left:1px solid var(--line); }
+    .readout-item .number { color:var(--teal); font-size:.72rem; font-family:Consolas,monospace; padding-top:2px; }
+    .readout-item strong { font-size:.88rem; display:block; font-weight:650; }
+    .readout-item span { display:block; color:var(--muted);font-size:.77rem;line-height:1.6;margin-top:3px; }
+    .section { padding:115px 0 0; }
+    .section-head { display:grid; grid-template-columns: minmax(160px, .26fr) minmax(0, 1fr); gap:44px; border-top:1px solid var(--ink); padding-top:21px; margin-bottom:49px; }
+    .section-head .section-num { margin:6px 0 0; color:var(--teal); }
+    .section-head h2 { font-size:clamp(2.3rem,4.5vw,4.45rem); font-weight:610; line-height:1.04; max-width:780px; margin:0; }
+    .section-head p { max-width:670px; font-size:1.03rem; line-height:1.7; color:var(--muted); margin:19px 0 0; }
+    .overview { display:grid; grid-template-columns:minmax(160px,.26fr) minmax(0,1fr); gap:44px; }
+    .overview-label { color:var(--teal); padding-top:3px; }
+    .overview-body { display:grid; grid-template-columns:1fr 1fr; gap:44px; }
+    .overview-body p { font-size:1.03rem; line-height:1.78; margin:0; }
+    .overview-body p + p { color:var(--muted); }
+    .architecture { border:1px solid var(--line); background:var(--white); padding:31px 32px 27px; }
+    .arch-top { display:flex;justify-content:space-between;gap:15px;align-items:flex-start; margin-bottom:32px; }
+    .arch-top strong { font-size:1.04rem; font-weight:650; }
+    .arch-top span { font-size:.7rem;color:var(--muted); }
+    .pipeline { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:21px; position:relative; }
+    .pipeline .stage { position:relative; min-width:0; padding:16px 12px; min-height:142px; border:1px solid #b9c7c1; background:#f3f6f2; }
+    .pipeline .stage:not(:last-child)::after { content:"→"; position:absolute; right:-19px;top:45%;color:var(--teal);font-family:Consolas,monospace;font-weight:700; }
+    .stage .stage-id { display:block;font-size:.68rem; color:var(--teal);margin-bottom:13px; }
+    .stage strong { display:block;font-size:.86rem;line-height:1.35;font-weight:700; }
+    .stage p { font-size:.75rem; color:var(--muted); margin:8px 0 0; line-height:1.5; }
+    .stage.data { border-top:3px solid var(--violet); }
+    .stage.storage { border-top:3px solid var(--teal); }
+    .stage.output { border-top:3px solid #c9ac17; }
+    .diagram-note { font-size:.73rem;color:var(--muted);line-height:1.6; }
+    .runtime { margin-top:19px; border-top:1px solid var(--line); padding-top:18px; display:grid; grid-template-columns: minmax(135px,.27fr) minmax(0,1fr); gap:15px; align-items:start; }
+    .runtime .small-label { color:var(--teal); line-height:1.6; }
+    .runtime .text { font-size:.87rem;line-height:1.65; }
+    .runtime code, .note-grid code { color:var(--violet);font-size:.85em; }
+    .release { display:flex; gap:14px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--line); padding-top:19px; margin-top:19px; }
+    .release .small-label { color:var(--teal); margin-right:10px; }
+    .release .path { font-size:.79rem; }
+    .release .arrow { font-size:.91rem;color:var(--teal); }
+    .arch-foot { display:flex;justify-content:space-between; gap:18px; align-items:center; padding:16px 0 0; }
+    .arch-foot p { font-size:.76rem;color:var(--muted);margin:0; }
+    .arch-foot a { font-size:.76rem;white-space:nowrap; }
+    .decision-table { border-top:1px solid var(--ink); }
+    .decision { display:grid; grid-template-columns:72px minmax(180px,.75fr) minmax(260px,1.3fr); gap:25px; border-bottom:1px solid var(--line); padding:25px 0 29px; }
+    .decision .id { font-family:Consolas,monospace;color:var(--teal);font-size:.79rem; }
+    .decision h3 { font-size:1.33rem; line-height:1.28; font-weight:630; margin:0; }
+    .decision p { color:var(--muted);font-size:.93rem;line-height:1.72; margin:0; }
+    .decision p strong { color:var(--ink);font-weight:650; }
+    .note-grid { display:grid; grid-template-columns:repeat(2,1fr);gap:45px; padding-top:25px; }
+    .note-grid .small-label { color:var(--teal); }
+    .note-grid p { font-size:.88rem; line-height:1.73;color:var(--muted); margin:9px 0 0; }
+    .timeline { display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--ink); }
+    .milestone { padding:25px 26px 20px 0; }
+    .milestone + .milestone { padding-left:30px;border-left:1px solid var(--line); }
+    .status { display:inline-block;font-size:.68rem;letter-spacing:.065em;text-transform:uppercase;color:var(--teal);margin-bottom:24px; }
+    .status.planned { color:var(--quiet); }
+    .status.developing { color:var(--violet); }
+    .milestone h3 { font-size:1.43rem;letter-spacing:-.04em;font-weight:620; line-height:1.22;margin:0 0 14px; }
+    .milestone p { color:var(--muted);font-size:.87rem;line-height:1.74;margin-bottom:0; }
+    .closing { margin:105px 0 0; background:var(--ink); color:#f9faf7; padding:52px 0 53px; }
+    .closing-inner { display:grid;grid-template-columns:1fr auto;align-items:end;gap:28px; }
+    .closing h2 { font-size:clamp(1.9rem,3.5vw,3.5rem);font-weight:580;line-height:1.07;margin:13px 0 0;max-width:650px; }
+    .closing .kicker { color:#a7d6cd; }
+    .closing .button { background:#f7f7f2;border-color:#f7f7f2;color:var(--ink); }
+    .closing .button:hover { background:#d7e8e1;border-color:#d7e8e1; }
+    .footer { padding:28px 0 36px; }
+    .footer-inner { display:grid;grid-template-columns:1fr 1fr;align-items:start;gap:30px; }
+    .footer .foot-note { max-width:520px;color:var(--muted);font-size:.7rem;line-height:1.8;margin:0; }
+    .footlinks { display:flex;justify-content:flex-end;flex-wrap:wrap;gap:16px 22px; }
+    .footlinks a { font-size:.77rem;text-decoration:none;border-bottom:1px solid var(--line);padding-bottom:3px; }
+    .credit { font-size:.7rem;color:var(--muted);margin-top:28px; }
+    @media(max-width:1020px) {
+      .page { width:min(calc(100% - 48px),var(--width)); }
+      .hero-heading { grid-template-columns:1fr;gap:24px; padding:43px 0 42px; }
+      h1 { font-size:clamp(3.75rem,10.5vw,6.3rem); }
+      .hero-intro { display:grid;grid-template-columns:1fr auto;column-gap:35px;align-items:end; }
+      .hero-intro .lead { max-width:630px; }
+      .hero-intro .support { grid-column:1; }
+      .hero-intro .actions { grid-column:2;grid-row:1/3;flex-direction:column;align-items:flex-start;gap:15px; }
+      .pipeline { gap:14px; }
+      .pipeline .stage:not(:last-child)::after { right:-14px; }
+      .pipeline .stage { padding:13px 10px; }
     }
-    a { color: inherit; text-decoration: none; }
-    a:focus-visible, button:focus-visible { outline: 3px solid var(--teal); outline-offset: 4px; }
-    ::selection { background: rgba(91,229,203,.26); }
-    .container { width: min(calc(100% - 48px), var(--max)); margin-inline: auto; }
-    .eyebrow { font-size: .78rem; letter-spacing: .16em; text-transform: uppercase; font-weight: 800; color: var(--teal); }
-    .pill { display:inline-flex; gap: 9px; align-items:center; padding: 8px 13px; font-size: .75rem; border-radius: 99px;
-      border: 1px solid rgba(91,229,203,.23); background: rgba(91,229,203,.075); color: #bdfdef; font-weight: 750; letter-spacing: .04em; }
-    .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--teal); box-shadow: 0 0 0 5px rgba(91,229,203,.10); }
-    h1,h2,h3,p { margin-top: 0; }
-    h1,h2,h3 { line-height:1.15; letter-spacing:-.035em; }
-    p { color: var(--muted); }
-    .gradient-text { background:linear-gradient(100deg,#a8f2e4 0%,#83b7ff 47%,#c4adff 100%); -webkit-background-clip:text; background-clip:text; color:transparent; }
-    .button { display:inline-flex; align-items:center; justify-content:center; gap:10px; min-height:48px; padding:12px 19px; border-radius:11px;
-      font-size:.9rem; font-weight:750; border:1px solid transparent; transition:transform .2s,background .2s,border-color .2s; }
-    .button:hover { transform:translateY(-2px); }
-    .button.primary { color:#091628; background:linear-gradient(125deg,#70ecd6,#96b9ff); box-shadow:0 10px 30px rgba(75,173,205,.13); }
-    .button.primary:hover { background:linear-gradient(125deg,#a8f9ea,#b7cbff); }
-    .button.secondary { background:rgba(163,188,223,.075); border-color:rgba(167,191,232,.23); color:#f1f6ff; }
-    .button.secondary:hover { background:rgba(163,188,223,.14); }
-    .button svg { width:17px;height:17px;flex:0 0 auto; }
-    .site-header { position:sticky; top:0; z-index:30; background:rgba(8,14,27,.88); border-bottom:1px solid var(--line); backdrop-filter:blur(20px); }
-    .nav { min-height:74px; display:flex; gap:20px; align-items:center; justify-content:space-between; }
-    .brand { display:inline-flex; align-items:center; gap:11px; font-weight:820; letter-spacing:-.04em; font-size:1.03rem; white-space:nowrap; }
-    .brand-icon { width:36px; height:36px; border-radius:11px; display:grid; place-items:center; background:linear-gradient(150deg,rgba(91,229,203,.22),rgba(122,156,255,.18)); border:1px solid rgba(129,218,234,.32); }
-    .brand-icon svg { width:23px;height:23px; }
-    .nav-links { display:flex; gap:27px; align-items:center; color:#b4c4da; font-weight:650; font-size:.85rem; }
-    .nav-links a:hover { color:var(--teal); }
-    .nav .nav-cta { padding:9px 14px; min-height:39px; font-size:.82rem; }
-    .hero { position:relative; isolation:isolate; overflow:hidden; padding:106px 0 92px; }
-    .hero::before { content:""; position:absolute; z-index:-1; width:840px;height:840px; right:-390px;top:-450px;
-      background:radial-gradient(circle,rgba(84,113,218,.14) 0,transparent 66%); pointer-events:none; }
-    .hero::after { content:""; position:absolute; z-index:-1; width:650px;height:650px; left:-400px;bottom:-390px;
-      background:radial-gradient(circle,rgba(52,194,161,.08) 0,transparent 70%); pointer-events:none; }
-    .hero-intro { max-width: 830px; margin: 0 auto; text-align: center; }
-    .hero h1 { max-width: 830px; font-size: clamp(3.1rem, 6vw, 5.25rem); margin: 23px auto 21px; font-weight: 850; line-height: 1.065; }
-    .hero .lead { max-width: 710px; font-size: 1.07rem; line-height: 1.75; margin: 0 auto 29px; }
-    .hero-cta { display:flex;flex-wrap:wrap;gap:12px;justify-content:center; }
-    .hero-note { margin-top:22px;font-size:.79rem;color:var(--muted-2); }
-    .hero-art {
-      width: 100%;
-      height: auto;
-      margin-top: 42px;
-      border: 1px solid rgba(147,181,234,.25);
-      border-radius: 22px;
-      background: #f3f5fa;
-      overflow: hidden;
-      box-shadow: 0 28px 75px rgba(0,0,0,.28);
+    @media(max-width:760px) {
+      .topbar-inner { min-height:65px; }
+      .signature { font-size:.9rem; }
+      .signature .sub { display:none; }
+      .topnav { gap:17px; }
+      .topnav a { font-size:.73rem; }
+      .topnav a:nth-child(2),.topnav a:nth-child(3) { display:none; }
+      .hero { padding-top:41px; }
+      .hero-heading { gap:25px; }
+      h1 { font-size:clamp(3.15rem,12vw,5.8rem); }
+      .hero-intro { display:block; }
+      .hero-intro .lead { font-size:1.17rem; }
+      .hero-intro .support { margin-bottom:21px; }
+      .hero-intro .actions { flex-direction:row;align-items:center; }
+      .figure-caption { flex-direction:column;gap:3px; }
+      .readout { grid-template-columns:1fr; }
+      .readout-item,.readout-item + .readout-item { padding:14px 0;border-left:0;border-bottom:1px solid var(--line); }
+      .readout-item:last-child { border-bottom:0; }
+      .section { padding-top:77px; }
+      .section-head { display:block; padding-top:14px;margin-bottom:27px; }
+      .section-head .section-num { margin-bottom:23px; }
+      .section-head h2 { font-size:clamp(2.2rem,8.1vw,3.5rem); }
+      .section-head p { font-size:.95rem; }
+      .overview { display:block; }
+      .overview-label { margin-bottom:18px; }
+      .overview-body { grid-template-columns:1fr;gap:17px; }
+      .overview-body p { font-size:.96rem; }
+      .architecture { padding:18px; }
+      .arch-top { margin-bottom:20px; }
+      .arch-top .diagram-note { display:none; }
+      .pipeline { grid-template-columns:1fr;gap:19px; }
+      .pipeline .stage { min-height:0;padding:13px 15px; }
+      .pipeline .stage:not(:last-child)::after { content:"↓"; top:auto;bottom:-20px;right:50%; }
+      .stage .stage-id { margin-bottom:4px; }
+      .stage p { margin-top:4px; }
+      .runtime { grid-template-columns:1fr;gap:8px; }
+      .release { align-items:flex-start; }
+      .release .small-label { display:block;width:100%; }
+      .arch-foot { flex-direction:column;align-items:flex-start; }
+      .decision { grid-template-columns:37px 1fr;gap:12px 14px;padding:20px 0 22px; }
+      .decision p { grid-column:2; }
+      .decision h3 { font-size:1.2rem; }
+      .note-grid { grid-template-columns:1fr;gap:21px; }
+      .timeline { grid-template-columns:1fr; }
+      .milestone,.milestone + .milestone { padding:22px 0;border-left:0;border-bottom:1px solid var(--line); }
+      .status { margin-bottom:10px; }
+      .closing { margin-top:77px;padding:42px 0; }
+      .closing-inner { grid-template-columns:1fr; }
+      .footer-inner { grid-template-columns:1fr; }
+      .footlinks { justify-content:flex-start; }
     }
-    .hero-shot {
-      display: block;
-      width: 100%;
-      height: auto;
+    @media(max-width:480px) {
+      .page { width:calc(100% - 32px); }
+      .hero-topline { flex-wrap:wrap; }
+      .hero-topline .kicker { font-size:.61rem; }
+      h1 { font-size:clamp(2.65rem,12vw,3.8rem); }
+      .actions { gap:16px; }
+      .button { font-size:.8rem; }
+      .figure-caption { font-size:.61rem; }
+      .arch-top strong { font-size:.92rem; }
+      .section-head h2 { font-size:2.15rem; }
     }
-    .hero-caption { text-align:center; margin:15px 0 0; color:var(--muted-2); font-size:.8rem; }
-    .hero-shot-link { display:block; }
-    .hero-shot-link:focus-visible { outline:3px solid var(--teal); outline-offset:4px; }
-    .metrics { display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:34px; }
-    .metric { padding:21px 24px;border:1px solid var(--line);border-radius:16px;background:rgba(19,31,53,.56); }
-    .metric b { font-size:1.38rem;line-height:1.2;letter-spacing:-.035em;display:block; }
-    .metric span { display:block;color:var(--muted);font-size:.77rem;margin-top:6px; }
-    section.section { padding:91px 0; }
-    .section.alt { border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:linear-gradient(180deg,rgba(21,33,55,.44),rgba(9,16,30,.20)); }
-    .section-head { max-width:740px;margin-bottom:40px; }
-    .section-head h2 { font-size:clamp(2.05rem,3.6vw,3rem);margin:11px 0 17px; }
-    .section-head p { font-size:1rem;line-height:1.75; }
-    .feature-grid { display:grid;grid-template-columns:repeat(3,1fr);gap:17px; }
-    .feature { padding:29px 27px;border:1px solid var(--line);background:linear-gradient(165deg,rgba(25,40,64,.77),rgba(12,22,40,.87));border-radius:18px; }
-    .feature-icon { width:47px;height:47px;border-radius:12px;display:grid;place-items:center;margin-bottom:22px;
-      background:rgba(91,229,203,.095);border:1px solid rgba(91,229,203,.14);color:var(--teal); }
-    .feature-icon svg { width:23px;height:23px; }
-    .feature:nth-child(2) .feature-icon { color:var(--blue);background:rgba(122,156,255,.10);border-color:rgba(122,156,255,.18); }
-    .feature:nth-child(3) .feature-icon { color:var(--purple);background:rgba(180,154,250,.10);border-color:rgba(180,154,250,.18); }
-    .feature h3 { font-size:1.17rem;margin:0 0 11px; }
-    .feature p { font-size:.89rem;line-height:1.76;margin:0; }
-    .architecture { display:grid;grid-template-columns:1fr 1fr;gap:18px; }
-    .flow-card { border:1px solid rgba(139,175,225,.22);border-radius:20px;background:#101b2e;padding:28px; }
-    .flow-card h3 { font-size:1.17rem;margin-bottom:8px; }
-    .flow-card .sub { font-size:.83rem;margin-bottom:22px; }
-    .flow { display:flex;flex-direction:column;align-items:stretch;gap:0; }
-    .node { border:1px solid rgba(128,165,215,.25);border-radius:11px;padding:13px 16px;background:#14233b;display:flex;gap:12px;align-items:center; }
-    .node .node-index { font-size:.69rem;font-weight:850;flex:0 0 auto;color:#69e6cc;background:rgba(91,229,203,.085);width:32px;height:32px;border-radius:8px;display:grid;place-items:center; }
-    .node strong { display:block;font-size:.84rem;letter-spacing:-.01em; }
-    .node small { display:block;font-size:.73rem;color:#99adc8;margin-top:1px; }
-    .connector { width:2px;height:24px;background:linear-gradient(180deg,#3f7c92,#6ce7cf);margin-inline:30px;position:relative; }
-    .connector::after { content:"";position:absolute;width:7px;height:7px;border-bottom:2px solid #6ce7cf;border-right:2px solid #6ce7cf;transform:rotate(45deg);left:-3px;bottom:2px; }
-    .flow-note { margin-top:17px;border-left:2px solid #5be5cb;padding:0 0 0 13px;color:var(--muted);font-size:.76rem;line-height:1.7; }
-    .stack { display:flex;gap:9px;flex-wrap:wrap;margin-top:27px; }
-    .stack span { padding:8px 12px;border:1px solid rgba(142,172,218,.19);background:rgba(142,172,218,.065);border-radius:8px;font-weight:650;font-size:.76rem;color:#c3d3e9; }
-    .details { margin-top:18px;display:grid;grid-template-columns:repeat(3,1fr);gap:17px; }
-    .detail { padding:22px;border-left:2px solid rgba(91,229,203,.6);background:rgba(15,25,42,.55);border-radius:0 12px 12px 0; }
-    .detail strong { display:block;font-size:.88rem;margin-bottom:9px; }
-    .detail p { font-size:.82rem;line-height:1.7;margin:0; }
-    .engineering-demo { margin:26px 0 0; font-size:.86rem; }
-    .engineering-demo a { color:var(--teal);font-weight:750;text-decoration:underline;text-underline-offset:3px; }
-    .status-grid { display:grid;grid-template-columns:repeat(3,1fr);gap:17px; }
-    .status-card { border:1px solid var(--line);border-radius:17px;background:#111d31;padding:25px; }
-    .status-card .tag { display:inline-flex;border-radius:100px;padding:5px 10px;font-size:.68rem;font-weight:800;letter-spacing:.055em;text-transform:uppercase;margin-bottom:20px; }
-    .tag.done { color:#83efcf;background:rgba(56,188,142,.11); }
-    .tag.next { color:#bdd0ff;background:rgba(110,151,255,.13); }
-    .tag.explore { color:#d1bdff;background:rgba(180,154,250,.13); }
-    .status-card h3 { font-size:1.12rem;margin-bottom:10px; }
-    .status-card p { font-size:.85rem;line-height:1.75;margin:0; }
-    .source-note { margin-top:33px;border:1px solid rgba(163,188,223,.16);background:rgba(19,30,47,.75);border-radius:14px;padding:17px 20px;font-size:.79rem;color:#9eb0c7;line-height:1.7; }
-    .source-note strong { color:#e8f0ff; }
-    .source-note a { color:#83e9d7;text-decoration:underline;text-underline-offset:3px; }
-    .cta-section { padding:84px 0 100px; }
-    .cta-panel { position:relative;overflow:hidden;text-align:center;border:1px solid rgba(121,169,231,.23);border-radius:24px;padding:60px 28px;background:radial-gradient(ellipse at 50% 0%,rgba(94,132,222,.21),transparent 62%),#122038; }
-    .cta-panel h2 { font-size:clamp(2.05rem,4vw,3rem);margin:13px 0 15px; }
-    .cta-panel p { max-width:550px;margin:0 auto 25px; }
-    .cta-panel .hero-cta { justify-content:center; }
-    footer { border-top:1px solid var(--line);padding:25px 0 35px; }
-    .foot { display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;color:var(--muted-2);font-size:.76rem; }
-    .foot-links { display:flex;gap:19px;flex-wrap:wrap; }
-    .foot-links a:hover { color:var(--teal); }
-    @media (max-width:980px) {
-      .nav-links { gap:16px; }
-      .hero { padding:75px 0 66px; }
-      .metrics { grid-template-columns:repeat(2,1fr); }
-      .architecture { grid-template-columns:1fr; }
-    }
-    @media (max-width:700px) {
-      .container { width:min(calc(100% - 32px),var(--max)); }
-      .nav { min-height:66px; }
-      .nav-links { display:none; }
-      .nav-cta { display:none; }
-      .hero { padding:59px 0 55px; }
-      .hero h1 { font-size:clamp(2.75rem,12vw,4rem); }
-      .hero .lead { font-size:.98rem; }
-      .hero-art { margin-top:30px; border-radius:14px; }
-      .hero-caption { font-size:.74rem; }
-      .metrics { gap:10px; }
-      .metric { padding:18px 16px; }
-      .metric b { font-size:1.08rem; }
-      .metric span { font-size:.7rem; }
-      section.section { padding:65px 0; }
-      .section-head { margin-bottom:29px; }
-      .feature-grid,.details,.status-grid { grid-template-columns:1fr; }
-      .flow-card { padding:21px; }
-      .cta-section { padding:50px 0 70px; }
-      .cta-panel { padding:42px 20px; }
-      .foot { align-items:flex-start;flex-direction:column; }
-    }
-    @media (prefers-reduced-motion:reduce) {
-      html { scroll-behavior:auto; }
-      .button { transition:none; }
-      .button:hover { transform:none; }
-    }
+    @media(prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } .button { transition:none; } }
   </style>
 </head>
 <body>
-  <header class="site-header">
-    <div class="container nav">
-      <a class="brand" href="#top" aria-label="World Population Explorer home">
-        <span class="brand-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="#8cf1d9" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c-4 4-4 14 0 18M12 3c4 4 4 14 0 18"/></svg>
-        </span>
-        <span>World Population Explorer</span>
-      </a>
-      <nav class="nav-links" aria-label="Main navigation">
-        <a href="#features">Features</a>
-        <a href="#architecture">Architecture</a>
-        <a href="#engineering">Engineering</a>
-        <a href="#roadmap">Roadmap</a>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="topbar">
+    <div class="page topbar-inner">
+      <a class="signature" href="#top">Seif Hamed <span class="slash">/</span> <span class="sub">Selected work</span></a>
+      <nav class="topnav" aria-label="Page navigation">
+        <a href="#system">System</a>
+        <a href="#decisions">Decisions</a>
+        <a href="#progress">Progress</a>
+        <a class="external" href="https://github.com/Seif-Wessam/world-population-interactive-visualisation" target="_blank" rel="noopener noreferrer">Repository ↗</a>
       </nav>
-      <a class="button secondary nav-cta" href="https://github.com/Seif-Wessam/world-population-interactive-visualisation" target="_blank" rel="noopener noreferrer">GitHub repository <span aria-hidden="true">↗</span></a>
     </div>
   </header>
 
-  <main id="top">
-    <div class="container">
-      <section class="hero" aria-labelledby="hero-title">
-        <div class="hero-intro">
-          <span class="pill"><span class="status-dot"></span> DEPLOYED · OPEN SOURCE</span>
-          <h1 id="hero-title">World Population <span class="gradient-text">Explorer.</span></h1>
-          <p class="lead">Explore how populations have changed across the world through an interactive globe and historical trends — powered by an end-to-end World Bank data pipeline and a serverless AWS deployment.</p>
-          <div class="hero-cta">
-            <a class="button primary" href="https://kgywd5fzmf347xiiw2rlz73hm40eiyby.lambda-url.eu-north-1.on.aws/" target="_blank" rel="noopener noreferrer">Explore the live dashboard <span aria-hidden="true">↗</span></a>
-            <a class="button secondary" href="https://github.com/Seif-Wessam/world-population-interactive-visualisation" target="_blank" rel="noopener noreferrer">View source code <span aria-hidden="true">↗</span></a>
-          </div>
-          <p class="hero-note">Built by Seif Hamed · Python · Plotly Dash · AWS Lambda</p>
+  <main id="main">
+    <div class="page" id="top">
+      <section class="hero" aria-labelledby="project-title">
+        <div class="hero-topline">
+          <p class="kicker">Case study 001 / Data engineering</p>
+          <p class="kicker">Independent project · 2026</p>
         </div>
-        <figure style="margin:0">
-          <div class="hero-art">
-            <a class="hero-shot-link" href="assets/world-population-explorer-screenshot.png" target="_blank" rel="noopener" aria-label="Open the full-size dashboard screenshot in a new tab">
-              <img class="hero-shot" src="assets/world-population-explorer-screenshot.png" alt="World Population Explorer dashboard with a globe coloured by population on the left and Egypt's historical population chart on the right." width="1893" height="1005" fetchpriority="high" decoding="async" />
-            </a>
+        <div class="hero-heading">
+          <h1 id="project-title"><span class="title-line">World</span><span class="title-line">Population</span><span class="title-line">Explorer.</span></h1>
+          <div class="hero-intro">
+            <p class="lead">From public API to interactive globe.</p>
+            <p class="support">A World Bank data pipeline, a browser-based population explorer, and a containerised AWS deployment. This is how I built it, and what I learned about the tradeoffs along the way.</p>
+            <div class="actions">
+              <a class="button" href="https://kgywd5fzmf347xiiw2rlz73hm40eiyby.lambda-url.eu-north-1.on.aws/" target="_blank" rel="noopener noreferrer">Open live explorer ↗</a>
+              <a class="link" href="https://github.com/Seif-Wessam/world-population-interactive-visualisation" target="_blank" rel="noopener noreferrer">Read the code ↗</a>
+            </div>
           </div>
-          <figcaption class="hero-caption">Actual application screenshot · Select a country on the live globe to explore its population history · Click to view full size</figcaption>
+        </div>
+        <figure class="project-figure">
+          <a class="project-image-link" href="assets/world-population-explorer-screenshot.png" target="_blank" rel="noopener noreferrer" aria-label="Open full-size screenshot of the World Population Explorer dashboard">
+            <img class="project-image" src="assets/world-population-explorer-screenshot.png" alt="Actual World Population Explorer dashboard. The population globe is on the left; Egypt is selected with its latest population and historical line chart on the right." width="1893" height="1005" fetchpriority="high">
+          </a>
+          <figcaption class="figure-caption"><span>FIG. 01 — The live dashboard, with Egypt selected</span><span>Actual application screenshot · Click to enlarge</span></figcaption>
         </figure>
-        <div class="metrics" aria-label="Project at a glance">
-          <div class="metric"><b>1970 → latest</b><span>World Bank observations, where available</span></div>
-          <div class="metric"><b>200+ economies</b><span>Mapped in the latest available view</span></div>
-          <div class="metric"><b>2 AWS Lambdas</b><span>Separate ingestion and dashboard services</span></div>
-          <div class="metric"><b>Open source</b><span>Implementation and tests on GitHub</span></div>
+        <div class="readout" aria-label="What the dashboard does">
+          <div class="readout-item"><span class="number">01</span><div><strong>Explore spatially</strong><span>Rotate the globe and inspect population estimates.</span></div></div>
+          <div class="readout-item"><span class="number">02</span><div><strong>Select an economy</strong><span>See the most recent reported observation.</span></div></div>
+          <div class="readout-item"><span class="number">03</span><div><strong>Read its history</strong><span>Follow available yearly observations back to 1970.</span></div></div>
         </div>
       </section>
     </div>
 
-    <section class="section alt" id="features" aria-labelledby="features-title">
-      <div class="container">
-        <div class="section-head"><span class="eyebrow">The experience</span><h2 id="features-title">From global overview to <span class="gradient-text">country-level detail.</span></h2><p>The interface makes a large public dataset approachable while keeping the underlying observations and source methodology visible.</p></div>
-        <div class="feature-grid">
-          <article class="feature"><div class="feature-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c-4 5-4 13 0 18M12 3c4 5 4 13 0 18"/></svg></div><h3>Interactive population globe</h3><p>Rotate the globe and explore more than 200 World Bank economies through colour-coded population estimates. Hover to inspect values and observation years.</p></article>
-          <article class="feature"><div class="feature-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 18V5M3 18h18M7 15l4-4 4 2 5-7"/></svg></div><h3>Historical population trends</h3><p>Select an economy to view its most recent reported observation and a historical population chart, with annual data extending back to 1970 where available.</p></article>
-          <article class="feature"><div class="feature-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4zM8 8h8M8 12h8M8 16h5"/><path d="M18 8l1 1 2-2"/></svg></div><h3>Traceable public data</h3><p>Observations come from the World Bank Indicators API. The ingestion pipeline checks pagination, preserves missing values, and separates aggregate groups from individual economies.</p></article>
-        </div>
-      </div>
-    </section>
-
-    <section class="section" id="architecture" aria-labelledby="architecture-title">
-      <div class="container">
-        <div class="section-head"><span class="eyebrow">System architecture</span><h2 id="architecture-title">An end-to-end <span class="gradient-text">serverless pipeline.</span></h2><p>Data ingestion and web serving run as separate container-based Lambda services. The public application reads a prepared dataset rather than querying World Bank on every interaction.</p></div>
-        <div class="architecture">
-          <div class="flow-card">
-            <h3>01 / Data ingestion</h3><p class="sub">Extract, enrich, verify, and publish.</p>
-            <div class="flow">
-              <div class="node"><span class="node-index">01</span><span><strong>World Bank Indicators API</strong><small>Population observations and economy metadata</small></span></div>
-              <span class="connector" aria-hidden="true"></span>
-              <div class="node"><span class="node-index">02</span><span><strong>Python ingestion Lambda</strong><small>Pagination, record counts, region enrichment</small></span></div>
-              <span class="connector" aria-hidden="true"></span>
-              <div class="node"><span class="node-index">03</span><span><strong>Amazon S3</strong><small>Enriched JSON dataset for the dashboard</small></span></div>
-            </div>
-            <p class="flow-note">The ingestion job runs separately from deployment; new observations are not fetched by every dashboard visitor.</p>
-          </div>
-          <div class="flow-card">
-            <h3>02 / Interactive delivery</h3><p class="sub">Serve the interface and respond to user selections.</p>
-            <div class="flow">
-              <div class="node"><span class="node-index">01</span><span><strong>Browser + Lambda Function URL</strong><small>Public HTTPS access to the dashboard</small></span></div>
-              <span class="connector" aria-hidden="true"></span>
-              <div class="node"><span class="node-index">02</span><span><strong>Lambda Web Adapter + Gunicorn</strong><small>HTTP requests routed to the web application</small></span></div>
-              <span class="connector" aria-hidden="true"></span>
-              <div class="node"><span class="node-index">03</span><span><strong>Dash / Flask + pandas</strong><small>S3 data loaded into memory at process startup</small></span></div>
-            </div>
-            <p class="flow-note">Country-selection callbacks filter the in-memory data. Plotly handles interactions such as globe rotation in the browser.</p>
+    <section class="section" id="story" aria-labelledby="story-title">
+      <div class="page">
+        <div class="section-head">
+          <p class="section-num">01 / The problem</p>
+          <div>
+            <h2 id="story-title">Public data is available.<br>Exploration is another problem.</h2>
           </div>
         </div>
-        <div class="stack" aria-label="Technology stack"><span>Python 3.13</span><span>pandas</span><span>Dash + Plotly</span><span>AWS Lambda</span><span>Amazon S3</span><span>Amazon ECR</span><span>Docker</span><span>Gunicorn</span><span>GitHub Actions</span></div>
-      </div>
-    </section>
-
-    <section class="section alt" id="engineering" aria-labelledby="engineering-title">
-      <div class="container">
-        <div class="section-head"><span class="eyebrow">Engineering decisions</span><h2 id="engineering-title">More than a <span class="gradient-text">front-end visualization.</span></h2><p>The project combines ingestion safeguards, runtime architecture, automated tests, and cloud deployments.</p></div>
-        <div class="details">
-          <div class="detail"><strong>Careful data handling</strong><p>API pagination and reported record totals are checked. Missing observations stay <code>null</code> instead of being treated as zero.</p></div>
-          <div class="detail"><strong>Efficient interactions</strong><p>The dashboard loads prepared S3 data at Python process startup, then filters it in memory for country-selection callbacks.</p></div>
-          <div class="detail"><strong>Versioned cloud builds</strong><p>GitHub Actions runs Python tests and builds Docker images in ECR. The final dashboard Lambda image update is currently manual.</p></div>
+        <div class="overview">
+          <p class="small-label overview-label">The work</p>
+          <div class="overview-body">
+            <p>The World Bank publishes population observations through an API. Building an explorable interface requires more than plotting those numbers: the records need to be collected, matched to economy metadata, checked and made available to a web application.</p>
+            <p>I built a separation between data ingestion and interactive serving. The ingestion process prepares a reusable dataset in S3; the dashboard reads that dataset and lets visitors navigate the globe without sending a new World Bank API request for each selection.</p>
+          </div>
         </div>
-        <p class="engineering-demo">Want to see the application in action? <a href="https://github.com/user-attachments/assets/b9c95f83-1d33-4023-b44e-0b4245502bc6" target="_blank" rel="noopener noreferrer">Watch the recorded demo <span aria-hidden="true">↗</span></a></p>
       </div>
     </section>
 
-    <section class="section" id="roadmap" aria-labelledby="roadmap-title">
-      <div class="container">
-        <div class="section-head"><span class="eyebrow">Project development</span><h2 id="roadmap-title">Deployed today. <span class="gradient-text">Built to evolve.</span></h2><p>The current dashboard is a completed, publicly accessible milestone. In parallel, the next stage is actively focused on improving automation and building the agentic framework for more flexible World Bank data exploration.</p></div>
-        <div class="status-grid">
-          <article class="status-card"><span class="tag done">Implemented & deployed</span><h3>Population dashboard</h3><p>World Bank data ingestion, metadata enrichment, S3 publication, an interactive globe and historical charts, and a public Lambda-hosted web application.</p></article>
-          <article class="status-card"><span class="tag next">Planned improvements</span><h3>Reliability and automation</h3><p>Automated dataset refreshes, stronger quality checks, cache freshness handling, and automatic dashboard Lambda updates from new container builds.</p></article>
-          <article class="status-card"><span class="tag explore">In development</span><h3>Agentic data exploration</h3><p>Building an MCP-enabled and agentic analytics workflow for indicator discovery, auditable retrieval, and SQL-based analysis. This work is currently in development and is separate from the already deployed dashboard milestone.</p></article>
+    <section class="section" id="system" aria-labelledby="system-title">
+      <div class="page">
+        <div class="section-head">
+          <p class="section-num">02 / The system</p>
+          <div><h2 id="system-title">One dataset.<br>Two independent runtimes.</h2><p>The ingestion Lambda and dashboard Lambda have different jobs. S3 sits between them as the handoff point, so data collection does not need to run during browser interactions.</p></div>
         </div>
-        <div class="source-note"><strong>Data source and interpretation:</strong> Population observations originate from the <a href="https://data.worldbank.org/indicator/SP.POP.TOTL" target="_blank" rel="noopener noreferrer">World Bank's Population, total indicator (SP.POP.TOTL)</a>. World Bank “economies” include territories as well as sovereign states. Aggregate entries are excluded from individual-economy views; missing data must not be read as zero. The globe's colours use a logarithmic population scale.</div>
+        <div class="architecture" role="group" aria-label="Data flow from World Bank through ingestion Lambda, Amazon S3, dashboard Lambda and browser">
+          <div class="arch-top"><strong>Data and serving path</strong><span class="diagram-note">Simplified architecture · Not to scale</span></div>
+          <div class="pipeline">
+            <div class="stage data"><span class="stage-id mono">INPUT / 01</span><strong>World Bank API</strong><p>Population series + economy metadata</p></div>
+            <div class="stage"><span class="stage-id mono">PROCESS / 02</span><strong>Ingestion Lambda</strong><p>Fetch, enrich, verify records</p></div>
+            <div class="stage storage"><span class="stage-id mono">STORE / 03</span><strong>Amazon S3</strong><p>Prepared JSON snapshot</p></div>
+            <div class="stage"><span class="stage-id mono">SERVE / 04</span><strong>Dashboard Lambda</strong><p>Load into pandas at startup</p></div>
+            <div class="stage output"><span class="stage-id mono">OUTPUT / 05</span><strong>Visitor's browser</strong><p>Dash + Plotly interactions</p></div>
+          </div>
+          <div class="runtime">
+            <div class="small-label">How web requests reach Dash</div>
+            <div class="text">Browser ↔ Lambda Function URL ↔ Lambda Web Adapter ↔ Gunicorn ↔ Dash / Flask. Country selections filter a pandas DataFrame already held by the running application process.</div>
+          </div>
+          <div class="release">
+            <span class="small-label">Build and release</span>
+            <span class="path">GitHub Actions</span><span class="arrow">→</span>
+            <span class="path">Docker image</span><span class="arrow">→</span>
+            <span class="path">Amazon ECR</span><span class="arrow">→</span>
+            <span class="path">AWS Lambda</span>
+          </div>
+          <div class="arch-foot"><p>Image builds are automated; updating the dashboard Lambda to the latest image remains manual.</p><a class="link" href="https://github.com/Seif-Wessam/world-population-interactive-visualisation#architecture" target="_blank" rel="noopener noreferrer">Full architecture in README ↗</a></div>
+        </div>
       </div>
     </section>
 
-    <section class="cta-section" aria-labelledby="cta-title">
-      <div class="container"><div class="cta-panel"><span class="eyebrow">Explore the project</span><h2 id="cta-title">See the <span class="gradient-text">system behind the globe.</span></h2><p>Try the interactive application, or inspect the Python pipeline, infrastructure setup, and tests in the public repository.</p><div class="hero-cta"><a class="button primary" href="https://kgywd5fzmf347xiiw2rlz73hm40eiyby.lambda-url.eu-north-1.on.aws/" target="_blank" rel="noopener noreferrer">Open live application <span aria-hidden="true">↗</span></a><a class="button secondary" href="https://github.com/Seif-Wessam/world-population-interactive-visualisation" target="_blank" rel="noopener noreferrer">Explore GitHub repository <span aria-hidden="true">↗</span></a></div></div></div>
+    <section class="section" id="decisions" aria-labelledby="decisions-title">
+      <div class="page">
+        <div class="section-head">
+          <p class="section-num">03 / Engineering notes</p>
+          <div><h2 id="decisions-title">The choices behind<br>the interface.</h2><p>These are the details that shaped the project more than the visual styling.</p></div>
+        </div>
+        <div class="decision-table">
+          <article class="decision"><span class="id">D/01</span><h3>Prepare once, explore repeatedly.</h3><p>The dashboard reads the enriched S3 dataset at process startup, rather than querying the World Bank or S3 on every click. <strong>Tradeoff:</strong> quick in-memory filtering, but updated data needs a fresh process to be loaded.</p></article>
+          <article class="decision"><span class="id">D/02</span><h3>Don't confuse missing with zero.</h3><p>Unreported population values stay <code>null</code>. Aggregate groups are identified separately from individual economies, and the map uses a logarithmic Viridis scale. <strong>Why:</strong> visual clarity shouldn't erase the underlying meaning of the data.</p></article>
+          <article class="decision"><span class="id">D/03</span><h3>Check that extraction is complete.</h3><p>The ingestion code follows API pagination and compares collected record counts against the totals reported by the API. <strong>Limit:</strong> completeness checks do not guarantee that every individual observation is correct.</p></article>
+          <article class="decision"><span class="id">D/04</span><h3>Keep ingestion and serving separate.</h3><p>Two Lambda functions, each packaged in a Docker image, handle different workloads. GitHub Actions builds and publishes the images to ECR. <strong>Tradeoff:</strong> an explicit deployment process, with some release steps still manual.</p></article>
+        </div>
+        <div class="note-grid">
+          <div><span class="small-label">Data interpretation</span><p>The World Bank's term “economy” includes territories as well as sovereign states. The latest reported observation for a selected economy can differ from the year represented on the globe.</p></div>
+          <div><span class="small-label">See it work</span><p>The <a href="https://github.com/user-attachments/assets/b9c95f83-1d33-4023-b44e-0b4245502bc6" target="_blank" rel="noopener noreferrer">recorded demonstration ↗</a> shows the deployed application. The <a href="https://github.com/Seif-Wessam/world-population-interactive-visualisation" target="_blank" rel="noopener noreferrer">repository ↗</a> includes the ingestion code, dashboard and deployment workflows.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="progress" aria-labelledby="progress-title">
+      <div class="page">
+        <div class="section-head">
+          <p class="section-num">04 / Development record</p>
+          <div><h2 id="progress-title">Deployed is a milestone,<br>not the end of the project.</h2><p>A practical distinction between what can be used today, what I'm building now and what is still on the list.</p></div>
+        </div>
+        <div class="timeline">
+          <article class="milestone"><span class="status">01 / Deployed</span><h3>Population explorer</h3><p>World Bank ingestion, S3 data publication, interactive globe, country history, a public Lambda-hosted app and container build workflows.</p></article>
+          <article class="milestone"><span class="status developing">02 / In development</span><h3>Agentic data exploration</h3><p>Work is underway on an MCP-enabled workflow for indicator discovery, data retrieval and SQL-based analysis with DuckDB and LLM tooling. This is not part of the public dashboard yet.</p></article>
+          <article class="milestone"><span class="status planned">03 / Planned</span><h3>Operational refinement</h3><p>Automated refresh and cache handling, broader data-quality checks, and a fully automated dashboard image update after a successful build.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="closing" aria-labelledby="closing-title">
+      <div class="page closing-inner"><div><p class="kicker">Explore the work</p><h2 id="closing-title">A working interface.<br>And the engineering behind it.</h2></div><a class="button" href="https://kgywd5fzmf347xiiw2rlz73hm40eiyby.lambda-url.eu-north-1.on.aws/" target="_blank" rel="noopener noreferrer">Launch dashboard ↗</a></div>
     </section>
   </main>
 
-  <footer>
-    <div class="container foot"><span>© <span id="year">2026</span> Seif Hamed · World Population Explorer</span><div class="foot-links"><a href="https://github.com/Seif-Wessam/world-population-interactive-visualisation" target="_blank" rel="noopener noreferrer">GitHub</a><a href="https://www.linkedin.com/posts/seif-hamed-a9ba30231_dataengineering-python-aws-ugcPost-7524431438172319747-Fzm6/" target="_blank" rel="noopener noreferrer">LinkedIn launch post</a><a href="https://data.worldbank.org/indicator/SP.POP.TOTL" target="_blank" rel="noopener noreferrer">Data source</a><a href="#top">Back to top ↑</a></div></div>
+  <footer class="footer">
+    <div class="page">
+      <div class="footer-inner">
+        <p class="foot-note">Source: World Bank Indicators API, <a href="https://data.worldbank.org/indicator/SP.POP.TOTL" target="_blank" rel="noopener noreferrer">Population, total (SP.POP.TOTL)</a>. Available observations extend back to 1970. Individual economies are shown; aggregate groups are excluded from the map. No missing observations are interpreted as zero.</p>
+        <nav class="footlinks" aria-label="Further links">
+          <a href="https://github.com/Seif-Wessam/world-population-interactive-visualisation" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+          <a href="https://www.linkedin.com/posts/seif-hamed-a9ba30231_dataengineering-python-aws-ugcPost-7524431438172319747-Fzm6/" target="_blank" rel="noopener noreferrer">Milestone post ↗</a>
+          <a href="https://datahelpdesk.worldbank.org/knowledgebase/topics/125589-developer-information" target="_blank" rel="noopener noreferrer">World Bank API ↗</a>
+          <a href="#top">Back to top ↑</a>
+        </nav>
+      </div>
+      <p class="credit">© 2026 Seif Hamed · Designed as a project case study · HTML &amp; CSS</p>
+    </div>
   </footer>
-  <script>document.getElementById('year').textContent = new Date().getFullYear();</script>
 </body>
 </html>
