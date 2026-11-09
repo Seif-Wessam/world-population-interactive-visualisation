@@ -1,14 +1,14 @@
 
 import pandas as pd
 
-from agentic_workflow.agentic_framework.analytics import (
+from agentic_framework.analytics import (
     load_population_data,
     create_connection,
     get_schema,
     execute_query,
     population_series
 )
-from llm_client import get_model_response
+from agentic_framework.llm_client import get_model_response
 
 
 def generate_sql(question: str, schema: str) -> str:

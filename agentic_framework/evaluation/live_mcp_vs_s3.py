@@ -5,7 +5,7 @@ import json
 import boto3
 import pandas as pd
 
-from agentic_workflow.agentic_framework.main import answer_question
+from agentic_framework.main import answer_question
 
 
 BUCKET = "webgis-population-app"

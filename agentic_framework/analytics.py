@@ -1,4 +1,4 @@
-from agentic_workflow.agentic_framework.sql_guard import validate_sql
+from agentic_framework.sql_guard import validate_sql
 
 
 import json

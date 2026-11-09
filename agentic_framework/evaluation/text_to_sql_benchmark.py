@@ -1,13 +1,13 @@
 
 import pandas as pd
 
-from agentic_workflow.agentic_framework.analytics import (
+from agentic_framework.analytics import (
     load_population_data,
     create_connection,
     get_schema,
     execute_query,
 )
-from llm_client import get_model_response
+from agentic_framework.llm_client import get_model_response
 
 
 # 1. Define the five benchmark questions
