@@ -1,13 +1,45 @@
 
+import json
+import boto3
 import pandas as pd
 
 from agentic_framework.analytics import (
-    load_population_data,
     create_connection,
     get_schema,
     execute_query,
 )
 from agentic_framework.llm_client import get_model_response
+
+BUCKET = "webgis-population-app"
+KEY = "data/enriched_population_data.json"
+
+def load_population_data() -> pd.DataFrame:
+    """Retrieve population data from S3 as a pandas DataFrame."""
+    s3 = boto3.client("s3", region_name="eu-north-1")
+    response = s3.get_object(Bucket=BUCKET, Key=KEY)
+    records = json.loads(response["Body"].read())
+
+    return pd.DataFrame(records)
+
+
+def population_series(df: pd.DataFrame) -> pd.Series:
+    """Convert query results into population values indexed by year."""
+    year_col = "year" if "year" in df.columns else "date"
+
+    result = df[[year_col, "population"]].copy()
+
+    result["year"] = result[year_col].astype(int)
+    result["population"] = pd.to_numeric(result["population"])
+
+    if result["year"].duplicated().any():
+        raise ValueError("Duplicate observation years.")
+
+    return (
+        result
+        .set_index("year")["population"]
+        .sort_index()
+    )
+
 
 
 # 1. Define the five benchmark questions

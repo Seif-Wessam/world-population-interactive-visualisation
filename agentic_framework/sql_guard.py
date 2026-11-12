@@ -13,8 +13,11 @@ ALLOWED_COLUMNS = {
 }
 
 
-def validate_sql(sql: str) -> str:
-    """Validate a simple query against our population table."""
+def validate_sql(
+    sql: str,
+    allowed_tables: dict[str, set[str]]
+    ) -> str:
+    """Validate a simple query against existing tables."""
 
     # 1. Parse the SQL into statements.
     statements = [
@@ -31,20 +34,18 @@ def validate_sql(sql: str) -> str:
     if not isinstance(query, exp.Select):
         raise ValueError("Only SELECT queries are allowed.")
 
-    # 3. Reject complex query structures for this first MVP.
-    if (
-        len(list(query.find_all(exp.Select))) != 1
-        or query.find(exp.Join)
-        or query.find(exp.Subquery)
-        or query.find(exp.CTE)
-    ):
-        raise ValueError("Joins and nested queries are not allowed yet.")
-
-    # 4. The query must use only our population table.
     tables = list(query.find_all(exp.Table))
 
-    if len(tables) != 1 or tables[0].name != "population":
-        raise ValueError("Only the population table is allowed.")
+    #check 
+    if len(tables) != 1:
+        raise ValueError("Exactly one approved table is required.")
+
+    table_name = tables[0].name
+
+    if table_name not in allowed_tables:
+        raise ValueError(f"Unapproved table: {table_name}")
+
+    allowed_columns = allowed_tables[table_name]
 
     # 5. Allow a small set of analytical functions.
     allowed_functions = (
