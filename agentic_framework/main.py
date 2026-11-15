@@ -113,11 +113,12 @@ def parse_model_json(content: str) -> dict:
     return {key: result[key] for key in required}
 
 
+
 async def discover_indicator(
     client: Client,
     question: str,
 ) -> dict:
-    """Use Qwen and the live MCP search-tool schema to select an indicator."""
+    """Discover and validate one indicator using live MCP search results."""
 
     response = await client.list_tools()
 
@@ -147,50 +148,139 @@ async def discover_indicator(
             "role": "system",
             "content": (
                 "You are a World Bank indicator discovery assistant. "
-                "You must search for the indicator using the provided tool "
-                "before selecting an indicator. "
-                "Choose the indicator matching the user's requested "
-                "economic or statistical concept, measurement and unit. "
-                "For this prototype, handle one indicator, one country, "
-                "and a specified annual year range only. "
-                "After searching, return ONLY a JSON object with keys "
+                "Search using the provided MCP tool before selecting "
+                "an indicator. Choose an indicator matching the user's "
+                "concept, measurement, and unit. "
+                "Handle one indicator, one country, and one annual "
+                "year range. Return ONLY a JSON object with keys "
                 "database_id, indicator_id, country_code, "
                 "start_year, end_year. "
                 "Use a three-letter country code and integer years. "
-                "Do not invent indicator identifiers. "
+                "Never invent indicator identifiers. "
                 "Do not include Markdown."
             ),
         },
         {"role": "user", "content": question},
     ]
 
-    searched = False
+    # Exact (database_id, indicator_id) pairs returned by MCP.
+    discovered_ids = set()
 
-    for _ in range(5):
+    # Keep an optional diagnostic trace.
+    trace_enabled = os.getenv("AGENT_TRACE_DISCOVERY") == "1"
+
+    def trace(event, payload):
+        if trace_enabled:
+            print(f"\n[DISCOVERY] {event}")
+            print(json.dumps(payload, indent=2, default=str))
+
+    max_turns = 10
+
+    for turn in range(max_turns):
+
         completion = get_model_completion(messages, tools)
-        message = completion.choices[0].message
+        choice = completion.choices[0]
+        message = choice.message
         calls = message.tool_calls or []
 
-        if not calls:
-            if not searched:
-                raise RuntimeError(
-                    "Qwen selected an indicator without searching."
-                )
+        # ----------------------------------------------
+        # CASE A: Qwen returns a final selection
+        # ----------------------------------------------
 
-            return parse_model_json(message.content or "")
+        if not calls:
+
+            if not discovered_ids:
+                messages.append({
+                    "role": "assistant",
+                    "content": message.content or "",
+                })
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "No valid indicator has been discovered yet. "
+                        "Search the MCP indicator catalog using the "
+                        "provided tool before returning a selection."
+                    ),
+                })
+                continue
+
+            try:
+                selection = parse_model_json(
+                    message.content or ""
+                )
+            except (ValueError, TypeError) as exc:
+                trace("invalid_final_response", {
+                    "error": str(exc),
+                })
+
+                messages.append({
+                    "role": "assistant",
+                    "content": message.content or "",
+                })
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "Your final response was not a valid "
+                        "selection JSON. Return the required JSON "
+                        "object using an indicator from the "
+                        "previous MCP search results."
+                    ),
+                })
+                continue
+
+            selected_pair = (
+                selection["database_id"],
+                selection["indicator_id"],
+            )
+
+            if selected_pair not in discovered_ids:
+                trace("invalid_indicator_id", {
+                    "selected": selected_pair,
+                    "valid_ids": sorted(discovered_ids),
+                })
+
+                messages.append({
+                    "role": "assistant",
+                    "content": message.content or "",
+                })
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "The selected database_id and indicator_id "
+                        "pair was not returned by MCP. "
+                        "Select the exact identifiers from the "
+                        "previous search results. "
+                        "Do not reconstruct or abbreviate IDs. "
+                        f"Available pairs: {sorted(discovered_ids)}"
+                    ),
+                })
+                continue
+
+            trace("selection_accepted", selection)
+            return selection
+
+        # ----------------------------------------------
+        # CASE B: Qwen requests MCP search tools
+        # ----------------------------------------------
 
         assistant_calls = []
 
         for call in calls:
+
             if call.function.name != "data360_search_indicators":
-                raise ValueError("Unauthorized discovery tool.")
+                raise ValueError(
+                    "Unauthorized discovery tool."
+                )
 
             arguments = call.function.arguments
+
             if isinstance(arguments, str):
                 arguments = json.loads(arguments)
 
             if not isinstance(arguments, dict):
-                raise ValueError("Invalid MCP tool arguments.")
+                raise ValueError(
+                    "Invalid MCP tool arguments."
+                )
 
             assistant_calls.append({
                 "id": str(call.id),
@@ -208,28 +298,97 @@ async def discover_indicator(
         })
 
         for proposed in assistant_calls:
+
             arguments = json.loads(
                 proposed["function"]["arguments"]
             )
 
-            result = await call_data360_tool(
-                client,
-                "data360_search_indicators",
-                arguments,
-            )
+            trace("mcp_search_request", arguments)
 
-            searched = True
+            try:
+                result = await call_data360_tool(
+                    client,
+                    "data360_search_indicators",
+                    arguments,
+                )
 
-            # Bound the amount of search-result text sent back to Qwen.
-            result_text = json.dumps(result, default=str)
+            except RuntimeError as exc:
+
+                # Recover only from an unsuccessful search.
+                # Unexpected MCP failures must still propagate.
+                if "No indicators found" not in str(exc):
+                    raise
+
+                feedback = {
+                    "status": "no_matches",
+                    "error": str(exc),
+                    "suggestion": (
+                        "Try another formulation of the same "
+                        "topic using simpler search terms."
+                    ),
+                }
+
+            else:
+                indicators = result.get("indicators", [])
+
+                if not isinstance(indicators, list):
+                    raise ValueError(
+                        "Invalid MCP indicator-search response."
+                    )
+
+                for indicator in indicators:
+                    database_id = indicator.get("database_id")
+                    indicator_id = indicator.get("idno")
+
+                    if database_id and indicator_id:
+                        discovered_ids.add(
+                            (database_id, indicator_id)
+                        )
+
+                # Send valid, compact JSON rather than
+                # truncating the original response.
+                feedback = {
+                    "status": (
+                        "ok" if indicators else "no_matches"
+                    ),
+                    "indicators": [
+                        {
+                            "database_id": item.get("database_id"),
+                            "idno": item.get("idno"),
+                            "name": item.get("name"),
+                            "periodicity": item.get("periodicity"),
+                            "time_period_range": item.get(
+                                "time_period_range"
+                            ),
+                            "covers_country": item.get(
+                                "covers_country"
+                            ),
+                            "definition": item.get(
+                                "truncated_definition"
+                            ),
+                        }
+                        for item in indicators
+                    ],
+                    "has_more": result.get("has_more", False),
+                    "next_offset": result.get("next_offset"),
+                }
+
+            trace("mcp_search_result", feedback)
 
             messages.append({
                 "role": "tool",
                 "tool_call_id": proposed["id"],
-                "content": result_text[:16000],
+                "content": json.dumps(
+                    feedback,
+                    default=str,
+                ),
             })
 
-    raise RuntimeError("Maximum indicator discovery turns reached.")
+    raise RuntimeError(
+        "Indicator discovery failed after "
+        f"{max_turns} model turns. "
+        f"Discovered {len(discovered_ids)} candidate identifiers."
+    )
 
 
 async def retrieve_dataset(

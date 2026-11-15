@@ -11,12 +11,12 @@ load_dotenv(Path(__file__).with_name(".env"))
 
 # 2. Retrieve configuration
 token = os.environ["HF_TOKEN"]
-model = os.getenv("MODEL_NAME", "Qwen/Qwen3.5-9B:cheapest")
+model = os.getenv("MODEL_NAME", "Qwen/Qwen3.5-9B")
 
 # 3. Initialize the Hugging Face inference client
 client = InferenceClient(
     api_key=token,
-    provider="deepinfra"
+    provider="deepinfra" #provider="deepinfra"
 )
 
 
@@ -24,19 +24,27 @@ def get_model_response(prompt: str) -> str:
     """
     Send a prompt to Qwen and return its text response.
     """
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "user", "content": prompt}
-        ],
-        max_tokens=512,
-        temperature=0.7,
-        extra_body={
-            "chat_template_kwargs": {
-                "enable_thinking": False
-            }
-        }
-    )
+
+    from huggingface_hub.errors import HfHubHTTPError
+
+    try:
+        response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=4196,
+                temperature=0.7,
+                extra_body={
+                    "chat_template_kwargs": {
+                        "enable_thinking": False
+                    }
+                }
+            )
+    except HfHubHTTPError as exc:
+        print("HTTP status:", exc.response.status_code)
+        print("Response body:", exc.response.text)
+        raise
 
     choice = response.choices[0]
     content = choice.message.content or ""
