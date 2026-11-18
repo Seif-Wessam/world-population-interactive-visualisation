@@ -16,6 +16,7 @@ import json
 import os
 import re
 from io import BytesIO
+import pandas as pd
 
 import boto3
 from mcp import Client
@@ -23,7 +24,9 @@ from mcp import Client
 from agentic_framework.llm_client import (
     get_model_completion,
     get_model_response,
+    decompose_question
 )
+
 from agentic_framework.mcp_client import (
     MCP_URL,
     call_data360_tool,
@@ -39,6 +42,12 @@ from agentic_framework.analytics import (
     execute_query,
 )
 
+from agentic_framework.discovery import (
+    discover_indicators,
+    discover_single_indicator,
+    parse_model_json,
+)
+
 
 APPROVED_TABLES = {"observations", "indicators"}
 
@@ -47,348 +56,6 @@ S3_BUCKET = os.getenv(
     "webgis-population-app",
 )
 AWS_REGION = os.getenv("AWS_REGION", "eu-north-1")
-
-
-def parse_model_json(content: str) -> dict:
-    """Parse the structured indicator selection returned by Qwen."""
-
-    if not content or not content.strip():
-        raise ValueError("Qwen returned an empty selection.")
-
-    content = content.strip()
-
-    if content.startswith("```json"):
-        content = content[7:]
-        if content.endswith("```"):
-            content = content[:-3]
-
-    result = json.loads(content.strip())
-
-    if not isinstance(result, dict):
-        raise ValueError("Expected a JSON object from Qwen.")
-
-    required = {
-        "database_id",
-        "indicator_id",
-        "country_code",
-        "start_year",
-        "end_year",
-    }
-
-    if not required.issubset(result):
-        raise ValueError(
-            f"Missing selection fields: {required - set(result)}"
-        )
-
-    database_id = result["database_id"]
-    indicator_id = result["indicator_id"]
-    country_code = result["country_code"]
-
-    if not isinstance(database_id, str) or not re.fullmatch(
-        r"[A-Za-z0-9_]+", database_id
-    ):
-        raise ValueError("Invalid database identifier.")
-
-    if not isinstance(indicator_id, str) or not re.fullmatch(
-        r"[A-Za-z0-9_.]+", indicator_id
-    ):
-        raise ValueError("Invalid indicator identifier.")
-
-    if not isinstance(country_code, str) or not re.fullmatch(
-        r"[A-Z]{3}", country_code
-    ):
-        raise ValueError("Expected a three-letter country code.")
-
-    for field in ("start_year", "end_year"):
-        if type(result[field]) is not int:
-            raise ValueError(f"{field} must be an integer.")
-
-    if not (
-        1960 <= result["start_year"]
-        <= result["end_year"]
-        <= 2100
-    ):
-        raise ValueError("Invalid year range.")
-
-    return {key: result[key] for key in required}
-
-
-
-async def discover_indicator(
-    client: Client,
-    question: str,
-) -> dict:
-    """Discover and validate one indicator using live MCP search results."""
-
-    response = await client.list_tools()
-
-    search_tool = next(
-        (
-            tool
-            for tool in response.tools
-            if tool.name == "data360_search_indicators"
-        ),
-        None,
-    )
-
-    if search_tool is None:
-        raise RuntimeError("Indicator search tool unavailable.")
-
-    tools = [{
-        "type": "function",
-        "function": {
-            "name": search_tool.name,
-            "description": search_tool.description or "",
-            "parameters": search_tool.input_schema,
-        },
-    }]
-
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are a World Bank indicator discovery assistant. "
-                "Search using the provided MCP tool before selecting "
-                "an indicator. Choose an indicator matching the user's "
-                "concept, measurement, and unit. "
-                "Handle one indicator, one country, and one annual "
-                "year range. Return ONLY a JSON object with keys "
-                "database_id, indicator_id, country_code, "
-                "start_year, end_year. "
-                "Use a three-letter country code and integer years. "
-                "Never invent indicator identifiers. "
-                "Do not include Markdown."
-            ),
-        },
-        {"role": "user", "content": question},
-    ]
-
-    # Exact (database_id, indicator_id) pairs returned by MCP.
-    discovered_ids = set()
-
-    # Keep an optional diagnostic trace.
-    trace_enabled = os.getenv("AGENT_TRACE_DISCOVERY") == "1"
-
-    def trace(event, payload):
-        if trace_enabled:
-            print(f"\n[DISCOVERY] {event}")
-            print(json.dumps(payload, indent=2, default=str))
-
-    max_turns = 10
-
-    for turn in range(max_turns):
-
-        completion = get_model_completion(messages, tools)
-        choice = completion.choices[0]
-        message = choice.message
-        calls = message.tool_calls or []
-
-        # ----------------------------------------------
-        # CASE A: Qwen returns a final selection
-        # ----------------------------------------------
-
-        if not calls:
-
-            if not discovered_ids:
-                messages.append({
-                    "role": "assistant",
-                    "content": message.content or "",
-                })
-                messages.append({
-                    "role": "user",
-                    "content": (
-                        "No valid indicator has been discovered yet. "
-                        "Search the MCP indicator catalog using the "
-                        "provided tool before returning a selection."
-                    ),
-                })
-                continue
-
-            try:
-                selection = parse_model_json(
-                    message.content or ""
-                )
-            except (ValueError, TypeError) as exc:
-                trace("invalid_final_response", {
-                    "error": str(exc),
-                })
-
-                messages.append({
-                    "role": "assistant",
-                    "content": message.content or "",
-                })
-                messages.append({
-                    "role": "user",
-                    "content": (
-                        "Your final response was not a valid "
-                        "selection JSON. Return the required JSON "
-                        "object using an indicator from the "
-                        "previous MCP search results."
-                    ),
-                })
-                continue
-
-            selected_pair = (
-                selection["database_id"],
-                selection["indicator_id"],
-            )
-
-            if selected_pair not in discovered_ids:
-                trace("invalid_indicator_id", {
-                    "selected": selected_pair,
-                    "valid_ids": sorted(discovered_ids),
-                })
-
-                messages.append({
-                    "role": "assistant",
-                    "content": message.content or "",
-                })
-                messages.append({
-                    "role": "user",
-                    "content": (
-                        "The selected database_id and indicator_id "
-                        "pair was not returned by MCP. "
-                        "Select the exact identifiers from the "
-                        "previous search results. "
-                        "Do not reconstruct or abbreviate IDs. "
-                        f"Available pairs: {sorted(discovered_ids)}"
-                    ),
-                })
-                continue
-
-            trace("selection_accepted", selection)
-            return selection
-
-        # ----------------------------------------------
-        # CASE B: Qwen requests MCP search tools
-        # ----------------------------------------------
-
-        assistant_calls = []
-
-        for call in calls:
-
-            if call.function.name != "data360_search_indicators":
-                raise ValueError(
-                    "Unauthorized discovery tool."
-                )
-
-            arguments = call.function.arguments
-
-            if isinstance(arguments, str):
-                arguments = json.loads(arguments)
-
-            if not isinstance(arguments, dict):
-                raise ValueError(
-                    "Invalid MCP tool arguments."
-                )
-
-            assistant_calls.append({
-                "id": str(call.id),
-                "type": "function",
-                "function": {
-                    "name": call.function.name,
-                    "arguments": json.dumps(arguments),
-                },
-            })
-
-        messages.append({
-            "role": "assistant",
-            "content": message.content or "",
-            "tool_calls": assistant_calls,
-        })
-
-        for proposed in assistant_calls:
-
-            arguments = json.loads(
-                proposed["function"]["arguments"]
-            )
-
-            trace("mcp_search_request", arguments)
-
-            try:
-                result = await call_data360_tool(
-                    client,
-                    "data360_search_indicators",
-                    arguments,
-                )
-
-            except RuntimeError as exc:
-
-                # Recover only from an unsuccessful search.
-                # Unexpected MCP failures must still propagate.
-                if "No indicators found" not in str(exc):
-                    raise
-
-                feedback = {
-                    "status": "no_matches",
-                    "error": str(exc),
-                    "suggestion": (
-                        "Try another formulation of the same "
-                        "topic using simpler search terms."
-                    ),
-                }
-
-            else:
-                indicators = result.get("indicators", [])
-
-                if not isinstance(indicators, list):
-                    raise ValueError(
-                        "Invalid MCP indicator-search response."
-                    )
-
-                for indicator in indicators:
-                    database_id = indicator.get("database_id")
-                    indicator_id = indicator.get("idno")
-
-                    if database_id and indicator_id:
-                        discovered_ids.add(
-                            (database_id, indicator_id)
-                        )
-
-                # Send valid, compact JSON rather than
-                # truncating the original response.
-                feedback = {
-                    "status": (
-                        "ok" if indicators else "no_matches"
-                    ),
-                    "indicators": [
-                        {
-                            "database_id": item.get("database_id"),
-                            "idno": item.get("idno"),
-                            "name": item.get("name"),
-                            "periodicity": item.get("periodicity"),
-                            "time_period_range": item.get(
-                                "time_period_range"
-                            ),
-                            "covers_country": item.get(
-                                "covers_country"
-                            ),
-                            "definition": item.get(
-                                "truncated_definition"
-                            ),
-                        }
-                        for item in indicators
-                    ],
-                    "has_more": result.get("has_more", False),
-                    "next_offset": result.get("next_offset"),
-                }
-
-            trace("mcp_search_result", feedback)
-
-            messages.append({
-                "role": "tool",
-                "tool_call_id": proposed["id"],
-                "content": json.dumps(
-                    feedback,
-                    default=str,
-                ),
-            })
-
-    raise RuntimeError(
-        "Indicator discovery failed after "
-        f"{max_turns} model turns. "
-        f"Discovered {len(discovered_ids)} candidate identifiers."
-    )
 
 
 async def retrieve_dataset(
@@ -475,43 +142,56 @@ def save_parquet(s3, key: str, dataframe) -> None:
 def generate_sql(
     question: str,
     schema: str,
-    selection: dict,
+    selections: list[dict],
 ) -> str:
     """Ask Qwen to generate DuckDB SQL using the live schema."""
 
     prompt = f"""
-You are generating SQL for a DuckDB analytical database.
+    You are generating SQL for a DuckDB analytical database.
 
-Return exactly one SELECT query.
-Return ONLY SQL without Markdown or explanations.
+    Return exactly one SELECT statement.
+    Return ONLY SQL without Markdown or explanations.
 
-Actual available database schema:
+    Actual available database schema:
 
-{schema}
+    {schema}
 
-The selected World Bank dataset is:
-{json.dumps(selection, indent=2)}
+    Selected datasets:
 
-Rules:
-- Use only existing tables and columns.
-- The observations table contains numerical observations.
-- The indicators table contains indicator metadata.
-- Use country_iso3 to filter countries.
-- Filter observations by the selected indicator_id.
-- Filter years to the requested range when appropriate.
-- Never combine observations from different indicators.
-- Use indicator_id to join observations and indicators.
-- You may use an INNER JOIN on indicator_id.
-- Do not use CTEs, subqueries, window functions or SELECT *.
-- Use only read-only SELECT statements.
-- Do not use external files, URLs or database functions.
-- Use SQL compatible with DuckDB.
-- Do not invent unavailable years or observations.
-- Return at most 1000 result rows.
+    {json.dumps(selections, indent=2)}
 
-User question:
-{question}
-"""
+    Rules:
+    - Use only existing tables and columns.
+    - The observations table contains rows from all selected indicators.
+    - Every observation has indicator_id, country_iso3, year and value.
+    - Preserve the distinction between indicators.
+    - Filter by the exact relevant indicator IDs and countries.
+    - Respect the requested time ranges.
+    - The indicators table contains indicator metadata.
+    - Do not introduce Cartesian products.
+    - Do not use CTEs, subqueries, window functions or SELECT *.
+    - Use only read-only SELECT statements.
+    - Do not use external files, URLs or database functions.
+    - Use DuckDB-compatible SQL.
+    - Return at most 1000 rows.
+
+    For questions involving multiple indicators:
+    - You may use conditional aggregation to align their values by year.
+    - Use CASE WHEN indicator_id = '...' THEN value END.
+    - Use MAX with GROUP BY year to obtain one column per indicator,
+    when appropriate and when observations are unique per indicator/year.
+    - Do not join observations to itself.
+    - Do not mix observations from different countries.
+    - Use aliases that clearly identify the measurements.
+    - If the user requests separate series, you may return a long-form
+    result containing year, indicator_id and value instead.
+
+    For single-indicator questions:
+    - Continue using the original simple SELECT approach.
+
+    User question:
+    {question}
+    """
 
     sql = get_model_response(prompt).strip()
 
@@ -545,20 +225,8 @@ def verify_observation_scope(
 
 
 async def answer_question(question: str) -> dict:
-    """Run the complete World Bank analytical pipeline."""
+    """Run the analytical workflow for one or more indicators."""
 
-    # Stage 1: Discover indicator and retrieve complete source data.
-    async with Client(MCP_URL) as client:
-        selection = await discover_indicator(client, question)
-
-        print("Selected dataset:", selection)
-
-        raw_observations, raw_metadata = await retrieve_dataset(
-            client,
-            selection,
-        )
-
-    prefix = build_s3_prefix(selection)
     skip_s3 = os.getenv("AGENT_SKIP_S3", "0") == "1"
 
     s3 = None if skip_s3 else boto3.client(
@@ -566,66 +234,126 @@ async def answer_question(question: str) -> dict:
         region_name=AWS_REGION,
     )
 
-    # Stage 2: Persist source responses before transformation.
-    if s3 is not None:
-        save_json(
-            s3,
-            f"{prefix}/raw.json",
-            raw_observations,
+    all_observations = []
+    all_indicators = []
+    s3_prefixes = []
+
+    # Stage 1: Decompose and discover.
+    async with Client(MCP_URL) as client:
+        selections = await discover_indicators(
+            client,
+            question,
         )
 
-        save_json(
-            s3,
-            f"{prefix}/metadata.json",
-            raw_metadata,
-        )
+        print("Selected datasets:", selections)
 
-    # Stage 3: Normalize the source responses.
-    observations_df = normalize_observations(
-        raw_observations,
-        selection["indicator_id"],
+        # Stage 2: Independently retrieve each dataset.
+        for selection in selections:
+            raw_observations, raw_metadata = await retrieve_dataset(
+                client,
+                selection,
+            )
+
+            prefix = build_s3_prefix(selection)
+
+            # Preserve the existing persistence behaviour for now.
+            if s3 is not None:
+                save_json(
+                    s3,
+                    f"{prefix}/raw.json",
+                    raw_observations,
+                )
+                save_json(
+                    s3,
+                    f"{prefix}/metadata.json",
+                    raw_metadata,
+                )
+
+            # Stage 3: Normalize and validate independently.
+            observations_df = normalize_observations(
+                raw_observations,
+                selection["indicator_id"],
+            )
+
+            indicators_df = normalize_metadata(raw_metadata)
+
+            verify_observation_scope(
+                observations_df,
+                selection,
+            )
+
+            if s3 is not None:
+                save_parquet(
+                    s3,
+                    f"{prefix}/observations.parquet",
+                    observations_df,
+                )
+                save_parquet(
+                    s3,
+                    f"{prefix}/indicators.parquet",
+                    indicators_df,
+                )
+
+            all_observations.append(observations_df)
+            all_indicators.append(indicators_df)
+
+            if s3 is not None:
+                s3_prefixes.append(prefix)
+
+    # Stage 4: Combine the normalized analytical data.
+    observations = pd.concat(
+        all_observations,
+        ignore_index=True,
     )
 
-    indicators_df = normalize_metadata(raw_metadata)
+    indicators = (
+        pd.concat(all_indicators, ignore_index=True)
+        .drop_duplicates(
+            subset=["database_id", "indicator_id"]
+        )
+        .reset_index(drop=True)
+    )
 
-    verify_observation_scope(observations_df, selection)
-
-    # Stage 4: Persist normalized analytical tables.
-    if s3 is not None:
-        save_parquet(
-            s3,
-            f"{prefix}/observations.parquet",
-            observations_df,
+    # Identical indicator IDs from different databases must not
+    # silently be treated as different datasets in DuckDB.
+    if indicators["indicator_id"].duplicated().any():
+        raise ValueError(
+            "Indicator ID collision across databases. "
+            "The analytical schema needs a composite identity."
         )
 
-        save_parquet(
-            s3,
-            f"{prefix}/indicators.parquet",
-            indicators_df,
+    # Prevent ambiguous duplicate observations after combination.
+    if observations.duplicated(
+        ["indicator_id", "country_iso3", "year"]
+    ).any():
+        raise ValueError(
+            "Duplicate observations across selected datasets."
         )
 
-    # Stage 5: Create the in-memory analytical database.
+    # Stage 5: Load both tables into a single DuckDB database.
     con = create_connection({
-        "observations": observations_df,
-        "indicators": indicators_df,
+        "observations": observations,
+        "indicators": indicators,
     })
 
     try:
-        # Stage 6: Discover the actual schema.
         schema = get_schema(con, APPROVED_TABLES)
 
         print("\nDuckDB schema:")
         print(schema)
 
-        # Stage 7: Generate SQL from the question and schema.
-        sql = generate_sql(question, schema, selection)
+        # Stage 6: Generate one SQL query for the complete question.
+        sql = generate_sql(
+            question,
+            schema,
+            selections,
+        )
 
         print("\nGenerated SQL:")
         print(sql)
 
-        # Stage 8: Validate and execute.
-        # execute_query() calls sql_guard.validate_sql().
-        result_df = execute_query(
+        # Stage 7: Validate and execute.
+        results = execute_query(
             con,
             sql,
             APPROVED_TABLES,
@@ -633,12 +361,12 @@ async def answer_question(question: str) -> dict:
 
         return {
             "question": question,
-            "selection": selection,
+            "selections": selections,
             "schema": schema,
             "sql": sql,
-            "results": result_df,
-            "metadata": indicators_df.to_dict("records"),
-            "s3_prefix": None if skip_s3 else prefix,
+            "results": results,
+            "metadata": indicators.to_dict("records"),
+            "s3_prefixes": s3_prefixes,
         }
 
     finally:

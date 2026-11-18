@@ -2,6 +2,8 @@
 import os
 from pathlib import Path
 from urllib import response
+import json
+import re
 
 from dotenv import load_dotenv
 from huggingface_hub import InferenceClient
@@ -55,6 +57,102 @@ def get_model_response(prompt: str) -> str:
     return content
 
 
+def decompose_question(question: str) -> list[dict]:
+    """Identify the distinct measurements needed to answer a question."""
+
+    prompt = f"""
+You are planning data retrieval for a World Bank analytics system.
+
+Identify the minimum set of distinct statistical measurements
+needed to answer the user's question.
+
+Do NOT search for World Bank indicators.
+Do NOT invent indicator IDs.
+Do NOT include derived calculations as separate measurements
+when they can be calculated from one underlying indicator.
+
+Preserve important qualifiers such as:
+- total, male, female
+- per capita versus absolute
+- national estimate versus modeled ILO estimate
+- measurement units and definitions
+
+Return ONLY a JSON array. Each element must contain:
+- metric: a specific measurement description
+- country_code: ISO 3166-1 alpha-3 country code
+- start_year: integer
+- end_year: integer
+
+For multiple countries, use a separate requirement
+for each measurement/country combination.
+
+User question:
+{question}
+"""
+
+    content = get_model_response(prompt).strip()
+
+    if content.startswith("```"):
+        content = re.sub(
+            r"^```(?:json)?\s*|\s*```$",
+            "",
+            content,
+        ).strip()
+
+    requirements = json.loads(content)
+
+    if not isinstance(requirements, list):
+        raise ValueError("Expected a list of measurements.")
+
+    if not 1 <= len(requirements) <= 5:
+        raise ValueError("Expected between 1 and 5 measurements.")
+
+    validated = []
+    seen = set()
+
+    for requirement in requirements:
+        if not isinstance(requirement, dict):
+            raise ValueError("Invalid measurement requirement.")
+
+        metric = requirement.get("metric")
+        country = requirement.get("country_code")
+        start = requirement.get("start_year")
+        end = requirement.get("end_year")
+
+        if not isinstance(metric, str) or not metric.strip():
+            raise ValueError("Missing measurement description.")
+
+        if not isinstance(country, str) or not re.fullmatch(
+            r"[A-Z]{3}", country
+        ):
+            raise ValueError("Invalid country code.")
+
+        if (
+            type(start) is not int
+            or type(end) is not int
+            or not 1960 <= start <= end <= 2100
+        ):
+            raise ValueError("Invalid year range.")
+
+        item = {
+            "metric": metric.strip(),
+            "country_code": country,
+            "start_year": start,
+            "end_year": end,
+        }
+
+        identity = (
+            item["metric"].casefold(),
+            country,
+            start,
+            end,
+        )
+
+        if identity not in seen:
+            validated.append(item)
+            seen.add(identity)
+
+    return validated
 
 
 def get_model_completion(messages: list, tools: list):
@@ -70,11 +168,3 @@ def get_model_completion(messages: list, tools: list):
         tool_choice="auto",
         max_tokens=1200
     )
-
-
-
-if __name__ == "__main__":
-    # Run this test only when executing llm_client.py directly.
-    test_prompt = "What is 2 + 2? Answer with only the number."
-
-    print(get_model_response(test_prompt))
