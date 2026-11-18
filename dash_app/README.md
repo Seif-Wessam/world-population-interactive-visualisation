@@ -3,7 +3,7 @@
 
 An interactive Dash and Plotly application for exploring historical World Bank population data, deployed as a containerized web application on AWS Lambda.
 
-**Status: Deployed and publicly accessible.**
+**Status:** The **population globe** is deployed and publicly accessible. An experimental **AI Data Analyst** tab is available in local development only; it is **not** part of the public AWS deployment.
 
 ### 🚀 Live Application
 
@@ -52,6 +52,36 @@ Custom CSS provides:
 - Side-by-side globe and details panels on desktop.
 - Stacked layout for smaller screens.
 - Consistent typography, spacing, and chart containers.
+
+---
+
+## Local AI Data Analyst — experimental
+
+The locally run Dash application includes an **AI Data Analyst** tab alongside the population globe. It connects through `dash_app/agent/callbacks.py` to `agentic_framework.main.answer_question()`; the backend uses Qwen, World Bank Data360 MCP and guarded DuckDB SQL.
+
+Currently the tab accepts a natural-language question and displays the resulting **data table**, generated SQL and indicator selections/metadata. It has input validation, safe public-facing error messages and offline pytest tests for layout, rendering and callbacks. **It does not yet produce a grounded natural-language answer or automatically select charts for arbitrary query results.**
+
+The agent is **not deployed**. The existing public Lambda image and endpoint still serve only the population dashboard. The local callback uses a synchronous adapter to an asynchronous backend and must not be exposed as an unrestricted public request path; bounded jobs, authentication, limits and cost monitoring are required before protected deployment.
+
+To use this local feature, install both dashboard and agent dependencies, configure Hugging Face credentials in your ignored local environment, and explicitly enable inference:
+
+```powershell
+python -m pip install -r dash_app/requirements.txt
+python -m pip install -r agentic_framework/requirements.txt
+$env:AGENT_UI_LIVE = "1"
+$env:AGENT_SKIP_S3 = "1"
+python -m dash_app.app
+```
+
+By default, `AGENT_UI_LIVE` is disabled to avoid accidental paid inference. The local agent tab requires `AGENT_SKIP_S3=1` to avoid S3 writes. The existing population globe still requires its normal S3 read access.
+
+Run the offline agent GUI tests with:
+
+```powershell
+python -m pytest dash_app/agent/tests/test_agent_gui.py -v
+```
+
+The existing GUI tests cover component structure and callback behavior, not live provider reliability or end-to-end browser behavior.
 
 ---
 
@@ -234,6 +264,8 @@ If no usable history is available, the details panel displays an appropriate mes
 | `layout.py` | Dash layout and interface components |
 | `ui.py` | Globe and historical chart construction |
 | `callbacks.py` | Country selection and clear-selection callbacks |
+| `agent/layout.py`, `agent/callbacks.py` | Local agent question input, result rendering and agent backend adapter |
+| `agent/tests/` | Offline tests for the local agent GUI |
 | `assets/style.css` | Styling and responsive layouts |
 | `requirements.txt` | Application and production dependencies |
 | `Dockerfile` | Production container image configuration |
@@ -494,20 +526,14 @@ A monthly AWS budget and billing notifications can help monitor spending, but bu
 - [ ] Improve responsive behaviour across devices.
 - [ ] Add automated browser interaction tests.
 
-### Future Extension: Agentic Analytics
+### Agentic Analytics — local prototype and roadmap
 
-A possible future extension is an MCP-powered World Bank data exploration workflow.
-
-The objective would be to let users:
-
-- Ask natural-language questions about World Bank indicators.
-- Discover available indicators and their metadata.
-- Retrieve relevant observations.
-- Run validated analytical queries.
-- Generate interactive visualizations.
-- Inspect the data sources and transformations behind generated results.
-
-This extension is planned and is not part of the currently deployed dashboard.
+- [x] Add a local Dash AI Data Analyst tab connected to the existing `agentic_framework` backend.
+- [x] Display SQL results as a table with selected indicator metadata; test callbacks offline.
+- [ ] Return grounded natural-language answers from the actual SQL results.
+- [ ] Add deterministic Plotly visualization selection for supported result shapes.
+- [ ] Introduce bounded background execution and server-enforced access controls.
+- [ ] Deploy a protected, limited-access agent service. The public globe remains independent until then.
 
 ---
 

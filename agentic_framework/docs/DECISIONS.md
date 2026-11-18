@@ -83,9 +83,9 @@
 
 ## ADR-009 — Separate the deployed dashboard from the experimental agent
 
-**Status:** Current repository boundary.  
+**Status:** Local agent UI implemented; deployed dashboard remains agent-free.  
 **Context:** The population dashboard is deployed, while the agent relies on paid inference, live MCP calls and model-generated SQL.  
-**Decision:** Keep agent experimentation local and separate from the public Lambda dashboard until correctness, security, cost and operational monitoring mature.  
+**Decision:** Integrate the experimental agent into a locally run Dash tab, while keeping agent inference out of the public Lambda deployment until correctness, security, cost and operational monitoring mature.  
 **Alternatives:** Expose the agent directly in the public dashboard now.  
 **Trade-offs:** Users cannot yet query arbitrary indicators through the deployed UI, but the deployed application remains simpler and its cost exposure more predictable.  
 **Revisit when:** End-to-end tests, rate limits, authentication, audit logs and model-cost controls are in place.
@@ -100,6 +100,25 @@
 **Revisit when:** The workflow is stable enough to establish a durable, testable cache contract.
 
 ---
+
+## ADR-011 — Combine independently normalized indicators in a shared analytical table
+
+**Status:** Implemented and live-tested for a two-indicator annual comparison (November 2026).  
+**Context:** Extending the agent from one to multiple World Bank indicators raised a choice between dynamically creating a table per indicator, implementing broader SQL join support immediately, and retaining one stable schema. Existing `sql_guard.py` deliberately restricts self-joins, CTEs, subqueries and window functions.  
+**Decision:** Decompose a question into measurement requirements and discover each indicator separately. Independently retrieve, normalize and validate the observations for each selection. Concatenate the normalized observations into one long-form DuckDB `observations` table (`indicator_id`, `country_iso3`, `year`, `value`), with a separate `indicators` metadata table. For compatible annual comparisons, allow Qwen to propose conditional aggregation, e.g. `MAX(CASE WHEN indicator_id = ... THEN value END)` grouped by year (and country when appropriate), while retaining the existing SQL guard.  
+**Why:** Preserves a stable analytical schema and per-indicator provenance without broadening the guard prematurely. Source datasets remain independent during retrieval, normalization and optional S3 persistence; the combined table is a query-time representation. Duplicate indicator/country/year observations are rejected so conditional aggregation extracts one value rather than silently choosing among duplicates.  
+**Alternatives:** Dynamic indicator-specific tables requiring broader joins; raw joins between observation rows; hard-coded pivoting in Python.  
+**Trade-offs:** Supports elementary aligned annual series, not general relational analytics. Conditional aggregation must group on all relevant dimensions; different units remain distinct and are not automatically converted. The current guard intentionally limits advanced queries, and neither valid provenance nor a selected year range guarantees semantic suitability or complete annual coverage.  
+**Validation:** An opt-in live test retrieved Egypt's total population and life expectancy from 2000 through 2023 and compared 24 result rows with independently retrieved World Bank MCP observations. This is one validated two-indicator case, not evidence of arbitrary N-indicator reliability.  
+**Revisit when:** Adding controlled joins, window functions, CTEs, multi-country analysis, broader dimensions or additional query shapes, always with independent correctness and SQL safety tests.
+
+## ADR-012 — Local Dash agent GUI before protected deployment
+
+**Status:** Implemented locally; not deployed.  
+**Context:** The existing population dashboard is AWS-hosted, while the agent is experimental and can require multiple paid Qwen requests and long MCP retrievals.  
+**Decision:** Add a separate AI Data Analyst tab in Dash with question submission, table, SQL and indicator metadata, using a thin callback adapter to `answer_question()`. Keep live inference opt-in (`AGENT_UI_LIVE=1`) and require `AGENT_SKIP_S3=1` in this local UI. Test the Dash callback offline by substituting a fake backend.  
+**Trade-offs:** The synchronous `asyncio.run()` adapter is only for local development; it is not a suitable unrestricted public Lambda request handler. The interface currently returns data, not a grounded natural-language analytical answer.  
+**Revisit when:** Implementing grounded answer synthesis, bounded background job execution, server-side authentication, rate and cost limits, and an access-controlled deployment.
 
 ## Decision review checklist
 

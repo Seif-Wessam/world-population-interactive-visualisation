@@ -2,7 +2,7 @@
 
 **An experimental Python pipeline for traceable, LLM-assisted analysis of World Bank development indicators.**
 
-**Current status (November 2026): working research prototype, not a production service.** The code implements hosted Qwen inference, MCP indicator discovery, paginated observation retrieval, normalization, restricted SQL generation/execution, optional S3 persistence, and evaluation scripts. The agent is not integrated into the deployed [World Population Explorer dashboard](../README.md).
+**Current status (November 2026): locally validated research prototype, not a production service.** The code implements hosted Qwen inference, multi-indicator MCP discovery, paginated retrieval, normalization, guarded DuckDB SQL, optional S3 persistence, and evaluation scripts. A local Dash AI Data Analyst tab invokes this backend; the publicly deployed [World Population Explorer dashboard](../README.md) does **not** expose the agent.
 
 The central design choice is to **let the model interpret and propose, while Python validates and executes**. Numerical answers come from DuckDB queries on retrieved source data, not from an LLM inventing figures.
 
@@ -11,8 +11,8 @@ The central design choice is to **let the model interpret and propose, while Pyt
 | Stage | Implementation | Status |
 | --- | --- | --- |
 | Hosted model | `llm_client.py` uses Hugging Face `InferenceClient`, configured with the DeepInfra provider and a Qwen model | Implemented; requires provider credentials |
-| Indicator discovery | `main.py` presents `data360_search_indicators` to Qwen, collects returned IDs, and rejects unsupported final indicator IDs | Implemented |
-| Source retrieval | `mcp_client.py` allowlists Data360 tools; fetches observation pages and verifies pagination progress; `main.py` requests metadata | Implemented for one indicator and one country |
+| Indicator discovery | `discovery.py` decomposes questions and discovers each indicator through Data360 MCP; returned IDs and scope are validated | Implemented; multi-indicator path live-tested |
+| Source retrieval | `mcp_client.py` allowlists Data360 tools and paginates observation retrieval; `main.py` retrieves metadata separately for each selection | Implemented for selected annual datasets |
 | Normalization | `transform.py` validates annual data, units, identifiers, disaggregation assumptions and duplicates | Implemented for supported schemas |
 | SQL generation | `main.py` prompts the model with the live DuckDB schema and selection | Implemented |
 | SQL restrictions | `sql_guard.py` parses SQL with SQLGlot; `analytics.py` limits the schema and executes in in-memory DuckDB | Implemented with restricted SQL subset |
@@ -20,39 +20,41 @@ The central design choice is to **let the model interpret and propose, while Pyt
 | Tests / evaluation | Unit and integration tests plus reference-SQL, MCP-versus-S3 and text-to-SQL evaluation scripts | Implemented as scripts/tests; results vary with live services |
 | Durable cache catalog and freshness policy | Empty `cache.py` placeholder | **Not implemented** |
 | Reusable controller/config/audit modules | `controller.py`, `config.py`, `audit.py` currently empty | **Not implemented** |
-| Public API, UI, structured narrative answer, deployment | Planned | **Not implemented** |
+| Local Dash GUI | `dash_app/agent/` calls the framework and displays a results table, SQL and metadata | Implemented locally; offline GUI tests |
+| Grounded narrative answer, protected public API/deployment | Planned | **Not implemented** |
 
 Do not equate an existing module or test file with a production-ready implementation. In particular, live correctness and inference reliability are still being evaluated.
 
 ## 2. Current supported workflow
 
-```mermaid
+ ```mermaid
 flowchart TD
-    U[Question] --> D[Qwen: discover indicator via MCP search]
-    D --> I[Validate selected database and indicator IDs]
-    I --> R[Data360 MCP: fetch pages + metadata]
-    R --> J[Optional S3: raw JSON + metadata]
-    R --> T[Normalize annual observations and metadata]
-    T --> P[Optional S3: Parquet tables]
-    T --> B[(In-memory DuckDB)]
+    U[Question] --> Q[Qwen: decompose measurements]
+    Q --> D[Discover and validate each indicator via Data360 MCP]
+    D --> R[Fetch pages and metadata independently]
+    R --> T[Normalize and validate each dataset]
+    R -.-> P[(Optional S3 raw and Parquet writes)]
+    T -.-> P
+    T --> C[Concatenate long-form observations and indicators metadata]
+    C --> B[(In-memory DuckDB)]
     B --> SC[Inspect allowed schema]
     SC --> G[Qwen: generate SQL]
-    G --> V[SQLGlot guard + allowlisted tables]
+    G --> V[SQLGlot guard]
     V --> E[DuckDB execution]
-    E --> O[Result DataFrame + SQL + metadata + selection]
+    E --> O[Result DataFrame, SQL, metadata and selections]
+    O --> UI[Local Dash results UI]
 ```
 
-`answer_question(question)` in `main.py` is the current integration entry point. It:
+`answer_question(question)` in `main.py` is the orchestration entry point. It:
 
-1. Asks Qwen to search the **actual Data360 MCP indicator catalog**, allowing multiple search attempts, and accepts only an `(database_id, indicator_id)` pair returned by search.
-2. Retrieves the selected indicator's observations, following `has_more` and `next_offset`, and fetches matching indicator metadata.
-3. Optionally persists the raw MCP payload and metadata to S3 **before** transformation.
-4. Normalizes observations and metadata into two pandas tables; rejects unsupported disaggregations, nonannual periods, inconsistent units/multipliers and duplicates.
-5. Optionally saves normalized tables to S3 as Parquet.
-6. Copies the tables into an in-memory DuckDB connection; reads its schema and asks Qwen for a read-only SQL query.
-7. Validates and executes SQL, returning the selected data identifiers, query, schema, resulting DataFrame, metadata and (when applicable) S3 prefix.
+1. Uses Qwen to decompose a question into measurement requirements and iteratively discover each indicator. Final indicator/database identifiers must originate from observed MCP search results, and selected scope is checked.
+2. Retrieves each selected indicator's paginated observations and metadata independently.
+3. Optionally persists each raw payload and normalized Parquet dataset to S3 before/after transformation.
+4. Normalizes and validates per-indicator annual observations, then combines them into a shared long-form `observations` table and a separate `indicators` metadata table.
+5. Asks Qwen for SQL over the actual DuckDB schema. For basic multi-indicator series, conditional aggregation can align indicators without self-joining observations.
+6. Uses `sql_guard.py` to validate the generated SQL, executes it in DuckDB, and returns a DataFrame, SQL, selections and metadata.
 
-**Scope:** One indicator, one three-letter country code and one annual year interval per question. No CTEs, subqueries, windows or `SELECT *` in model-generated SQL. The SQL guard is a defense in depth, not a proof of semantic correctness or a complete security sandbox.
+**Scope:** One or multiple indicators for compatible annual observations; the tested multi-indicator case covers two indicators and one country. CTEs, subqueries, windows and observation self-joins remain unsupported. Selected date ranges are not proof of complete annual coverage. Valid SQL does not establish semantic correctness. **The model does not yet synthesize a natural-language answer from the SQL result.** The SQL guard is defense in depth, not a full security sandbox.
 
 ## 3. Design choices
 
@@ -61,6 +63,7 @@ flowchart TD
 - **Raw-first persistence:** retain source payloads so transformations can later be audited. Current S3 keys under `agent_cache/prototype/` are predictable and can be overwritten by another run with the same selection; immutable versioning is **not** in place.
 - **DuckDB over an always-on database server:** suitable for local analytical computation over limited data volumes.
 - **SQLGlot validation + restricted DuckDB connection:** validates table/column usage and supported SQL constructs and disables external access in the DuckDB connection.
+- **Shared long-form multi-indicator table:** normalize independently, then concatenate observations and use conditional aggregation for basic annual comparisons; advanced join/window/CTE capabilities are deferred until the SQL guard is extended and tested.
 - **Separate evaluations:** fixed-S3-population text-to-SQL benchmarks and live Data360 comparisons test different failure modes; their sources and versions are not interchangeable.
 
 Detailed trade-offs and proposed follow-ups: [Architecture Decision Log](docs/DECISIONS.md).
@@ -69,7 +72,8 @@ Detailed trade-offs and proposed follow-ups: [Architecture Decision Log](docs/DE
 
 | Path | Purpose |
 | --- | --- |
-| `main.py` | Current end-to-end prototype; indicator discovery, retrieval, S3 writes, SQL execution |
+| `main.py` | Orchestration, independent retrieval, normalization, S3 writes, combined DuckDB analysis |
+| `discovery.py` | Multi-requirement indicator search, selection validation and deduplication |
 | `llm_client.py` | Hosted Qwen completion and tool-calling requests |
 | `mcp_client.py` | Allowlisted MCP calls and pagination-aware observation retrieval |
 | `transform.py` | Normalize and validate observations/metadata |
@@ -122,14 +126,14 @@ A SQL query being syntactically valid is not enough. Tests and experiments cover
 3. **Numerical/semantic correctness:** Do results match independently specified reference calculations, including filters, missing values, sorting and aggregations?
 4. **Source comparability:** Where S3 population observations are compared with live MCP results, do definitions, indicator IDs, coverage, revisions and dimensions align?
 
-Available scripts include `evaluation/text_to_sql_benchmark.py`, `evaluation/live_mcp_vs_s3.py`, and additional smoke/generalization experiments. Treat any particular benchmark outcome as an observed run, **not** a guaranteed accuracy level. Results are not claimed here because this README review did not execute the live suite.
+Available scripts include `evaluation/text_to_sql_benchmark.py`, `evaluation/live_mcp_vs_s3.py` and `evaluation/evaluate_multi_indicator.py`. A live two-indicator Egypt population/life-expectancy run for 2000–2023 passed a numerical comparison against independently retrieved MCP data (24 annual result rows). This is a single observed run, **not** a guaranteed accuracy level.
 
 ## 7. Limitations and safety boundaries
 
-- Single-indicator/single-country annual scope; unsupported disaggregations or unit multipliers are intentionally rejected.
+- Multi-indicator questions are supported for compatible annual series, but only basic two-indicator comparisons have been live-verified; advanced SQL and wider country/dimension scopes are not supported by the present guard. Unsupported disaggregations or unit multipliers are intentionally rejected.
 - S3 persistence is **write-only in the current request path**; there is no lookup, freshness tracking, reuse or immutable snapshot catalog.
 - Empty `controller.py`, `cache.py`, `audit.py` and `config.py` mean a generalized orchestration/audit architecture is not in place.
-- Returned data is a structured Python result, not a deployed end-user interface or a complete prose narrative with citations.
+- Returned data is a structured Python result displayed by a **local experimental Dash UI**, not a deployed agent interface or a complete grounded prose answer with citations.
 - SQLGlot checks do not replace runtime isolation, permissions, resource limits, semantic verification or security review.
 - External inference and MCP availability, source revisions, token costs and errors can affect live experiments.
 - The code is a research prototype and is **not suitable for an unrestricted public endpoint**.
@@ -145,8 +149,10 @@ Available scripts include `evaluation/text_to_sql_benchmark.py`, `evaluation/liv
 - [ ] Introduce immutable snapshot identifiers, cache catalog, and cache-hit/freshness behavior.
 - [ ] Refactor the monolithic flow into reusable controller, config and audit modules.
 - [ ] Add structured provenance records, reproducible evaluation outputs and stronger failure/cost limits.
-- [ ] Expand to multiple indicators and countries with compatible dimensions and units.
-- [ ] Integrate into a user interface only after correctness and operational safeguards are adequate.
+- [x] Support independently discovered multiple indicators with a shared long-form analytical schema; live-verify a two-indicator annual comparison.
+- [ ] Expand to additional countries, dimensions, complex joins and analytical SQL.
+- [x] Integrate a development-only Dash tab (live inference opt-in; local tests).
+- [ ] Add grounded answer synthesis, protected background execution, authentication, quotas and deployment.
 
 ## Sources and related documentation
 

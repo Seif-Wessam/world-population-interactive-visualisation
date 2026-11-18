@@ -1,6 +1,6 @@
 # World Population Explorer
 
-**An interactive, AWS-hosted population dashboard with a separate experimental World Bank analytics agent.**
+**An AWS-hosted population dashboard with a locally integrated, experimental World Bank analytics agent.**
 
 Explore historical population observations on a rotatable globe, inspect economy-level time series, and browse the engineering work behind an end-to-end environmental/geospatial-style data application.
 
@@ -8,7 +8,7 @@ Explore historical population observations on a rotatable globe, inspect economy
 
 ![World Population Explorer dashboard](docs/assets/world-population-explorer-screenshot.png)
 
-> **Status (November 2026):** The ingestion pipeline and population dashboard have been deployed to AWS. A separate **agentic analytics research prototype** is implemented in `agentic_framework/` but is **not integrated into the live dashboard or deployed as a public agent service**. See the [agent README](agentic_framework/README.md) for precise capabilities and limitations.
+> **Status (November 2026):** Population ingestion and the globe are deployed to AWS. The multi-indicator analytics prototype is connected to a **local-only Dash AI Data Analyst tab**; it is **not part of the deployed dashboard and is not a public agent service**. See the [agent README](agentic_framework/README.md) for validated capabilities and limitations.
 
 ## Two complementary components
 
@@ -16,7 +16,7 @@ Explore historical population observations on a rotatable globe, inspect economy
 | --- | --- | --- |
 | [Population ingestion](ingestion/README.md) | Retrieves World Bank population observations and metadata, validates pagination and record counts, and writes enriched JSON to S3 | Implemented and deployed; ingestion invoked manually |
 | [Population dashboard](dash_app/README.md) | Serves an interactive Dash/Plotly globe and historical population details through AWS Lambda | Implemented and deployed |
-| [Agentic analytics framework](agentic_framework/README.md) | Uses Qwen + World Bank Data360 MCP to select an indicator, retrieve observations, normalize data, and execute model-generated SQL under restrictions | Local research prototype; not production ready |
+| [Agentic analytics framework](agentic_framework/README.md) | Uses Qwen + World Bank Data360 MCP to discover one or more indicators, normalize data, and execute guarded SQL; connected to a local-only Dash tab | Local tested prototype; not deployed |
 
 ## Dashboard features
 
@@ -65,7 +65,7 @@ flowchart LR
     N -.-> P
 ```
 
-The agent diagram describes the **implemented prototype's logical flow**. S3 writes can be skipped using `AGENT_SKIP_S3=1`; persisted objects are not yet reused through a cache-hit/freshness system. This agent currently handles one selected indicator, one country, and an annual range per request. See [implementation details](agentic_framework/README.md) and [architecture decisions](agentic_framework/docs/DECISIONS.md).
+The agent diagram summarizes the **locally implemented prototype**. Qwen decomposes questions into measurement requirements and discovers each indicator independently. Validated annual observations are combined in a shared long-form DuckDB table; elementary multi-indicator comparisons can use conditional aggregation, while more complex SQL is intentionally restricted. S3 writes can be skipped using `AGENT_SKIP_S3=1`; cache-hit/freshness reuse is not implemented. A two-indicator Egypt comparison was live-tested; broader analyses are not guaranteed. See [implementation details](agentic_framework/README.md) and [architecture decisions](agentic_framework/docs/DECISIONS.md).
 
 ## Technology and repository structure
 
@@ -93,7 +93,9 @@ The project illustrates georeferenced **country-level visualization**, not advan
 | World Bank Data360 agent: discovery, retrieval, normalization, guarded SQL | Implemented in prototype |
 | Agent S3 raw JSON / Parquet writes | Implemented in prototype; optional |
 | Agent S3 cache lookup, freshness, versioned audit trail | Not implemented |
-| Agent UI and public agent deployment | Not implemented |
+| Agent UI in local Dash development | Implemented locally; not deployed |
+| Grounded natural-language answer from SQL results | Not implemented |
+| Public or protected agent deployment | Not implemented |
 
 ## Getting started
 
@@ -134,7 +136,7 @@ AWS charges may be incurred by the public endpoint; budgets and alerts are not h
 - Some deployment settings remain hard-coded; the dashboard Lambda image update is manual.
 - The agent is not connected to the public dashboard; its model output and SQL results require careful verification and are not production-safe by default.
 
-Near-term priorities: improve dashboard refresh/reliability; test and evaluate the agent against fixed reference queries; build its S3 cache catalog and provenance records; and only then consider UI integration or deployment.
+Near-term priorities: grounded synthesis of SQL results into evidence-based answers; visual results in the local Dash tab; bounded background execution, authentication and cost controls before a protected agent deployment; and future S3 caching and more expressive guarded SQL.
 
 ## Data source and attribution
 
