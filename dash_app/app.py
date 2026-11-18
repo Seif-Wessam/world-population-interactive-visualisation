@@ -1,10 +1,13 @@
 import boto3
-from dash import Dash
+from dash import Dash, dcc, html
 
 from dash_app.callbacks import register_callbacks
 from dash_app.data import load_population_data, prepare_population_data
 from dash_app.layout import create_layout
 from dash_app.ui import create_population_globe
+
+from dash_app.agent.agent_callbacks import register_agent_callbacks
+from dash_app.agent.agent_layout import create_agent_layout
 
 
 BUCKET = "webgis-population-app"
@@ -53,9 +56,31 @@ globe = create_population_globe(map_data, latest_year)
 app = Dash(__name__, title="World Population Explorer")
 server = app.server
 
-app.layout = create_layout(globe, latest_year)
+
+app.layout = html.Div([
+    dcc.Tabs(
+        id="application-tabs",
+        value="globe",
+        children=[
+            dcc.Tab(
+                label="Population Globe",
+                value="globe",
+                children=create_layout(globe, latest_year),
+            ),
+            dcc.Tab(
+                label="AI Data Analyst",
+                value="agent",
+                children=html.Main(
+                    create_agent_layout(),
+                    className="explorer-shell",
+                ),
+            ),
+        ],
+    ),
+])
 
 register_callbacks(app, population_data)
+register_agent_callbacks(app)
 
 
 if __name__ == "__main__":

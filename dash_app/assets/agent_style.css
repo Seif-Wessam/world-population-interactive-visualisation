@@ -1,0 +1,41 @@
+.agent-panel { margin-top: 8px; }
+.agent-heading { margin-bottom: 24px; }
+.agent-panel label { display: block; 
+    font-size: 13px; 
+    font-weight: 600; 
+    margin-bottom: 9px; }
+.agent-question { display: block; 
+    width: 100%; 
+    min-height: 125px; 
+    padding: 14px; 
+    resize: vertical; 
+    font: inherit; 
+    font-size: 14px;
+    border: 1px solid #ddd9e8; 
+    border-radius: 10px; }
+.agent-question:focus-visible { outline: 3px solid #21918c; 
+    outline-offset: 2px; }
+.agent-actions { display: flex; 
+    align-items: center; 
+    gap: 18px; 
+    margin: 16px 0; 
+    flex-wrap: wrap; }
+.agent-actions button { background: #440154; 
+    color: white; 
+    padding: 12px 20px; 
+    font-size: 13px; }
+.agent-actions button:hover { background: #5e2a6d; }
+.agent-summary { margin: 18px 0; 
+    font-weight: 600; }
+.agent-details { margin-top: 20px; 
+    border-top: 1px solid #ededf2; 
+    padding-top: 14px; }
+.agent-details summary { cursor: pointer; 
+    font-size: 13px; 
+    font-weight: 600; }
+.agent-sql { white-space: pre-wrap; 
+    overflow-wrap: anywhere; 
+    background: #f5f6fa; 
+    padding: 14px; 
+    border-radius: 8px; 
+    font-size: 12px; }

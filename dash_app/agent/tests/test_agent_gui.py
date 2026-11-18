@@ -1,0 +1,183 @@
+"""Offline tests for the Dash agent page and its synchronous MVP callback.
+
+Run from the repository root:
+    python -m pytest dash_app/agent/tests/test_agent_gui.py -v
+
+Assumes dash_app/agent/layout.py and dash_app/agent/callbacks.py are in place.
+"""
+
+import logging
+from dash import html
+
+import pandas as pd
+import pytest
+from dash import dash_table
+from dash.exceptions import PreventUpdate
+
+from dash_app.agent import agent_callbacks 
+from dash_app.agent.agent_layout import create_agent_layout
+
+
+class FakeApp:
+    """Capture callbacks without creating a Dash server or loading S3."""
+
+    logger = logging.getLogger("test_agent_gui")
+
+    def __init__(self):
+        self.outputs = None
+        self.callback_fn = None
+
+    def callback(self, *args, **kwargs):
+        # The initial Output declarations precede Input/State declarations.
+        self.outputs = [item for item in args if type(item).__name__ == "Output"]
+
+        def register(fn):
+            self.callback_fn = fn
+            return fn
+
+        return register
+
+
+@pytest.fixture
+def callback():
+    app = FakeApp()
+    agent_callbacks.register_agent_callbacks(app)
+    assert app.callback_fn is not None
+    return app
+
+
+@pytest.fixture
+def outcome():
+    return {
+        "results": pd.DataFrame(
+            {"year": [2022, 2023], "population": [112618250.0, 114535772.0],
+             "life_expectancy": [71.010, 71.633]}
+        ),
+        "sql": "SELECT year, population, life_expectancy FROM observations",
+        "selections": [
+            {"database_id": "WB_WDI", "indicator_id": "WB_WDI_SP_POP_TOTL",
+             "metric": "Population, total", "country_code": "EGY",
+             "start_year": 2000, "end_year": 2023},
+            {"database_id": "WB_WDI", "indicator_id": "WB_WDI_SP_DYN_LE00_IN",
+             "metric": "Life expectancy", "country_code": "EGY",
+             "start_year": 2000, "end_year": 2023},
+        ],
+    }
+
+
+def walk(component):
+    """Traverse Dash components without rendering a browser page."""
+    if isinstance(component, (tuple, list)):
+        for child in component:
+            yield from walk(child)
+    elif hasattr(component, "to_plotly_json"):
+        yield component
+        yield from walk(getattr(component, "children", None))
+
+
+def test_layout_has_all_expected_ids(callback):
+    component_ids = {getattr(x, "id", None) for x in walk(create_agent_layout())}
+    required = {
+        "agent-question", "agent-submit", "agent-status", "agent-summary",
+        "agent-results", "agent-sql", "agent-metadata",
+    }
+    assert required <= component_ids
+    callback_ids = {out.component_id for out in callback.outputs}
+    assert callback_ids <= component_ids
+
+
+def test_render_result_contains_correct_table_and_metadata(outcome):
+    summary, table, sql, metadata = agent_callbacks.render_result(outcome)
+    assert "2 indicator(s)" in summary.children
+    assert "2 result row(s)" in summary.children
+    assert isinstance(table, dash_table.DataTable)
+    assert [c["id"] for c in table.columns] == [
+        "year", "population", "life_expectancy"
+    ]
+    assert table.data[1]["population"] == 114535772.0
+    assert sql == outcome["sql"]
+    assert len(metadata.children) == 2
+
+
+def test_render_result_handles_missing_values(outcome):
+    outcome["results"].loc[0, "life_expectancy"] = float("nan")
+    _, table, _, _ = agent_callbacks.render_result(outcome)
+    assert table.data[0]["life_expectancy"] is None
+
+
+def test_render_result_rejects_non_dataframe(outcome):
+    outcome["results"] = [{"year": 2023}]
+    with pytest.raises(TypeError, match="DataFrame"):
+        agent_callbacks.render_result(outcome)
+
+
+def test_no_click_does_not_trigger_agent(callback):
+    with pytest.raises(PreventUpdate):
+        callback.callback_fn(0, "Population in Egypt")
+
+
+@pytest.mark.parametrize("question,expected", [
+    ("   ", "Please enter a question"),
+    ("x" * 1501, "1,500 characters"),
+])
+def test_invalid_input_returns_correct_number_of_outputs(
+    callback, monkeypatch, question, expected
+):
+    monkeypatch.setenv("AGENT_UI_LIVE", "1")
+    monkeypatch.setenv("AGENT_SKIP_S3", "1")
+    values = callback.callback_fn(1, question)
+    assert len(values) == len(callback.outputs)
+    assert expected in values[0].children
+
+
+def test_live_mode_is_opt_in(callback, monkeypatch):
+    monkeypatch.delenv("AGENT_UI_LIVE", raising=False)
+    values = callback.callback_fn(1, "How has population changed?")
+    assert len(values) == len(callback.outputs)
+    assert "disabled" in values[0].children.lower()
+
+
+def test_requires_s3_write_protection(callback, monkeypatch):
+    monkeypatch.setenv("AGENT_UI_LIVE", "1")
+    monkeypatch.delenv("AGENT_SKIP_S3", raising=False)
+    values = callback.callback_fn(1, "How has population changed?")
+    assert len(values) == len(callback.outputs)
+    assert "AGENT_SKIP_S3=1" in values[0].children
+
+def test_success_calls_agent_and_returns_correct_outputs(
+    callback, monkeypatch, outcome
+):
+    monkeypatch.setenv("AGENT_UI_LIVE", "1")
+    monkeypatch.setenv("AGENT_SKIP_S3", "1")
+    seen = []
+    monkeypatch.setattr(
+        agent_callbacks, "run_agent", lambda q: (seen.append(q), outcome)[1]
+    )
+    values = callback.callback_fn(1, "  How has Egypt changed?  ")
+    assert seen == ["How has Egypt changed?"]
+    assert len(values) == len(callback.outputs)
+    assert isinstance(values[0], html.Div)
+    assert "complete" in values[0].children[0].children.lower()
+    assert isinstance(values[0].children[2], dash_table.DataTable)
+    table = values[0].children[2]
+    assert isinstance(table, dash_table.DataTable)
+    assert len(table.data) == len(outcome["results"])
+    assert [col["id"] for col in table.columns] == [
+        "year",
+        "population",
+        "life_expectancy",
+    ]
+
+
+def test_agent_error_is_safely_reported(callback, monkeypatch):
+    monkeypatch.setenv("AGENT_UI_LIVE", "1")
+    monkeypatch.setenv("AGENT_SKIP_S3", "1")
+
+    def broken(_question):
+        raise RuntimeError("secret backend error")
+
+    monkeypatch.setattr(agent_callbacks, "run_agent", broken)
+    values = callback.callback_fn(1, "Population?")
+    assert len(values) == len(callback.outputs)
+    assert "Analysis failed" in values[0].children
+    assert "secret backend error" not in str(values)
