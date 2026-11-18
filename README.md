@@ -1,231 +1,143 @@
 # World Population Explorer
 
-**An interactive, publicly deployed application for exploring historical population data from the World Bank.**
+**An interactive, AWS-hosted population dashboard with a separate experimental World Bank analytics agent.**
 
-World Population Explorer combines a Python data ingestion pipeline, metadata enrichment, Amazon S3 storage, and an interactive Dash/Plotly dashboard. Visitors can rotate a globe, select an economy, and explore its population history.
+Explore historical population observations on a rotatable globe, inspect economy-level time series, and browse the engineering work behind an end-to-end environmental/geospatial-style data application.
 
-**Live dashboard:**
-[Live dashboard](https://kgywd5fzmf347xiiw2rlz73hm40eiyby.lambda-url.eu-north-1.on.aws/)  
-[Live Demo](https://github.com/user-attachments/assets/b9c95f83-1d33-4023-b44e-0b4245502bc6)
+**[Open the live dashboard](https://kgywd5fzmf347xiiw2rlz73hm40eiyby.lambda-url.eu-north-1.on.aws/)** · **[Watch the demo](https://github.com/user-attachments/assets/b9c95f83-1d33-4023-b44e-0b4245502bc6)**
 
+![World Population Explorer dashboard](docs/assets/world-population-explorer-screenshot.png)
 
+> **Status (November 2026):** The ingestion pipeline and population dashboard have been deployed to AWS. A separate **agentic analytics research prototype** is implemented in `agentic_framework/` but is **not integrated into the live dashboard or deployed as a public agent service**. See the [agent README](agentic_framework/README.md) for precise capabilities and limitations.
 
+## Two complementary components
 
+| Component | What it does | Maturity |
+| --- | --- | --- |
+| [Population ingestion](ingestion/README.md) | Retrieves World Bank population observations and metadata, validates pagination and record counts, and writes enriched JSON to S3 | Implemented and deployed; ingestion invoked manually |
+| [Population dashboard](dash_app/README.md) | Serves an interactive Dash/Plotly globe and historical population details through AWS Lambda | Implemented and deployed |
+| [Agentic analytics framework](agentic_framework/README.md) | Uses Qwen + World Bank Data360 MCP to select an indicator, retrieve observations, normalize data, and execute model-generated SQL under restrictions | Local research prototype; not production ready |
 
-> **Deployment status:** The ingestion pipeline and interactive dashboard are both deployed on AWS. Dashboard container builds are automated through GitHub Actions; updating the dashboard Lambda to use a newly built image remains a manual deployment step.
+## Dashboard features
 
-## Features
+- **Complete, checked ingestion:** Retrieves the World Bank `SP.POP.TOTL` indicator from 1970 onward, requests all API pages, and checks reported counts and pagination metadata.
+- **Metadata enrichment:** Preserves economy identifiers, ISO3 map codes, region labels, and aggregate flags; missing values remain `null` rather than becoming zero.
+- **Interactive globe:** Rotatable Plotly orthographic map, logarithmic Viridis color scaling, and selection of individual World Bank economies.
+- **Linked analytical views:** Latest available population value and historical chart for the selected economy; clear-selection support and responsive interface.
+- **Serverless delivery:** Python/Dash behind Gunicorn and AWS Lambda Web Adapter; data read from S3 when each application process starts.
+- **Engineering workflow:** Python tests, Docker images, GitHub Actions and Amazon ECR.
 
-### Ingestion and data preparation
-
-- Retrieves annual observations for the World Bank indicator [`SP.POP.TOTL`](https://data.worldbank.org/indicator/SP.POP.TOTL), from 1970 through the current calendar year, subject to API availability.
-- Retrieves economy metadata and enriches observations with region information and aggregate-group flags.
-- Retrieves all reported pages for both API endpoints, checks pagination metadata, and verifies retrieved record counts against API-reported totals.
-- Retains economy identifiers and ISO3 codes for map matching.
-- Preserves missing population observations as `null` rather than interpreting them as zero.
-- Publishes the enriched JSON dataset to Amazon S3.
-
-### Interactive dashboard
-
-- Rotatable orthographic globe with a **Viridis** colour scale using the base-10 logarithm of population.
-- Hover information showing population values and observation years.
-- Globe based on the latest available year covering more than 200 distinct economies with valid population observations and non-empty ISO3 codes.
-- Country/economy selection panel showing the latest available observation and a historical population chart.
-- Clear-selection control that preserves the globe figure rather than rebuilding it.
-- Responsive layout for desktop and smaller screens.
-
-The application displays individual World Bank economies, including territories. World Bank aggregate groups remain in the stored dataset but are excluded from individual-economy visualisations.
+*The visualization represents World Bank economies, including some territories, not just sovereign states. Aggregate groups remain in source data but are excluded from individual-economy maps.*
 
 ## Architecture
 
-### Data and request flow
+### Deployed population application
 
 ```mermaid
-flowchart TD
-    WB["World Bank Indicators API"] --> ING["Ingestion Lambda<br/>extract and enrich"]
-    ING --> S3["Amazon S3<br/>enriched JSON dataset"]
-    USER["User's browser"] <-->|"HTTPS"| URL["Lambda Function URL"]
-    subgraph DL["Dashboard Lambda execution environment"]
-        ADAPTER["Lambda Web Adapter"] <-->|"Local HTTP"| GUNI["Gunicorn"]
-        GUNI <-->|"WSGI"| DASH["Dash / Flask application<br/>pandas DataFrame in memory"]
-    end
-    URL <-->|"Lambda invocation"| ADAPTER
-    S3 -->|"Read at startup"| DASH
+flowchart LR
+    WB[World Bank Indicators API] --> I[Ingestion Lambda]
+    I --> S3[(S3 enriched JSON)]
+    S3 -->|load on process startup| D[Dash / Flask + pandas]
+    U[Browser] <-->|HTTPS| URL[Lambda Function URL]
+    URL <--> A[Lambda Web Adapter]
+    A <--> G[Gunicorn]
+    G <--> D
 ```
 
-The two Lambda functions have different responsibilities:
+- **Ingestion:** A separate container-based Lambda collects and enriches population data and writes to S3. Updating the ingestion Lambda image does **not** run ingestion; invocation is a separate step.
+- **Serving:** A container-based dashboard Lambda receives HTTP traffic through its Function URL, translated by Lambda Web Adapter to Gunicorn/Dash. The dashboard does not query the World Bank on every click.
+- **Caching limitation:** An already warm dashboard process may retain an older DataFrame after S3 is refreshed. Scheduled ingestion and automatic in-process refresh are not yet implemented.
 
-- **Ingestion Lambda:** Retrieves and enriches World Bank data, then publishes the dataset to S3. Deploying ingestion code does not automatically run an ingestion job.
-- **Dashboard Lambda:** Starts the containerised web application when invoked. At Python process startup, it reads the dataset from S3 into a pandas DataFrame. Country-selection callbacks filter that in-memory DataFrame; they do **not** call the World Bank API or download S3 data on every click.
-
-The browser communicates with the dashboard through a public **Lambda Function URL**. AWS Lambda Web Adapter translates Lambda events to local HTTP requests handled by Gunicorn, which serves the Dash/Flask application. Some interactions, such as Plotly globe rotation, are rendered in the browser without a server-side callback.
-
-Browser visitors do not need AWS credentials or direct access to the S3 bucket. The dashboard Lambda's execution role provides its S3 read permission.
-
-### Container build and deployment
+### Experimental agentic analytics (separate from the live application)
 
 ```mermaid
-flowchart TD
-    GH["GitHub repository"] --> CI["GitHub Actions / Python tests"]
-    CI --> IB["Build ingestion Docker image"]
-    CI --> DB["Build dashboard Docker image"]
-    IB --> IECR["Amazon ECR: ingestion image"]
-    DB --> DECR["Amazon ECR: dashboard image"]
-    IECR -->|"Workflow updates function"| IL["Ingestion Lambda"]
-    DECR -->|"Manual Lambda image update for now"| DL["Dashboard Lambda"]
+flowchart LR
+    Q[Natural-language question] --> L[Hosted Qwen]
+    L -->|MCP search| M[World Bank Data360 MCP]
+    M --> S[Validated indicator selection]
+    S --> R[Paginated observations + metadata]
+    R --> N[Python normalization]
+    N --> DB[(In-memory DuckDB)]
+    L -->|SQL from schema| V[SQLGlot validation]
+    V --> DB
+    DB --> O[Results + SQL + metadata]
+    R -.-> P[(S3 raw / Parquet files)]
+    N -.-> P
 ```
 
-**Docker** packages each application and its dependencies into a container image. **Amazon ECR** stores the built images; it does not run containers. **AWS Lambda** runs the applications using those images.
+The agent diagram describes the **implemented prototype's logical flow**. S3 writes can be skipped using `AGENT_SKIP_S3=1`; persisted objects are not yet reused through a cache-hit/freshness system. This agent currently handles one selected indicator, one country, and an annual range per request. See [implementation details](agentic_framework/README.md) and [architecture decisions](agentic_framework/docs/DECISIONS.md).
 
-## Project status
+## Technology and repository structure
 
-| Component | Status |
+| Area | Main tools | Path |
+| --- | --- | --- |
+| API ingestion | Python, World Bank API, boto3, AWS Lambda | [`ingestion/`](ingestion/) |
+| Interactive visualization | Dash, Plotly, pandas, CSS | [`dash_app/`](dash_app/) |
+| Cloud delivery | Docker, Gunicorn, Lambda Web Adapter, ECR, S3 | [`dash_app/Dockerfile`](dash_app/Dockerfile), [`ingestion/Dockerfile`](ingestion/Dockerfile) |
+| CI / deployments | pytest, GitHub Actions, AWS OIDC | [`.github/workflows/`](.github/workflows/) |
+| Agentic analytics | Qwen, Hugging Face InferenceClient (DeepInfra configured), MCP, DuckDB, SQLGlot, pandas, Parquet/S3 | [`agentic_framework/`](agentic_framework/) |
+
+The project illustrates georeferenced **country-level visualization**, not advanced spatial analysis such as raster transformations or spatial joins.
+
+## Status and deployment boundaries
+
+| Capability | Status |
 | --- | --- |
-| World Bank API ingestion and metadata enrichment | Implemented |
-| Pagination and record-count verification | Implemented |
-| Ingestion Lambda and S3 output | Deployed |
-| Ingestion GitHub Actions deployment | Implemented; manually triggered, updates Lambda image |
-| Dash/Plotly interactive frontend and country details | Implemented |
-| Production dashboard Dockerfile (Gunicorn + Lambda Web Adapter) | Implemented |
-| Dashboard GitHub Actions image build and ECR push | Implemented; manually triggered |
-| Dashboard Lambda and public Function URL | Deployed; browser-tested |
-| Automatic dashboard Lambda update after image build | Not yet implemented |
-| Automatic ingestion schedule and dashboard cache refresh | Not yet implemented |
-| Broader data-quality validation | Planned |
-| MCP-enabled, agentic World Bank data exploration | Proposed extension; not implemented |
+| World Bank population ingestion, enrichment, pagination checks | Implemented |
+| S3 population dataset and dashboard Lambda / Function URL | Deployed in AWS |
+| Interactive globe, selection and time-series chart | Implemented and browser-tested |
+| GitHub Actions tests and container-image publishing | Implemented |
+| Ingestion workflow updates ingestion Lambda image | Implemented; manually triggered |
+| Dashboard workflow updates dashboard Lambda image | **Not implemented**; update remains manual after ECR push |
+| Scheduled population ingestion / warm-process refresh | Not implemented |
+| World Bank Data360 agent: discovery, retrieval, normalization, guarded SQL | Implemented in prototype |
+| Agent S3 raw JSON / Parquet writes | Implemented in prototype; optional |
+| Agent S3 cache lookup, freshness, versioned audit trail | Not implemented |
+| Agent UI and public agent deployment | Not implemented |
 
-## AWS deployment
+## Getting started
 
-### Ingestion
+### Run the population dashboard locally
 
-The manually triggered workflow [`.github/workflows/deploy_ingestion.yml`](.github/workflows/deploy_ingestion.yml):
-
-1. Runs the reusable Python CI workflow.
-2. Assumes an AWS deployment role using GitHub OIDC.
-3. Builds and pushes a version-tagged ingestion image to Amazon ECR.
-4. Updates the existing ingestion Lambda and waits for the update to complete.
-
-**Updating the ingestion Lambda image does not execute it.** Invoke the ingestion Lambda separately to refresh the S3 dataset. See [ingestion/README.md](ingestion/README.md) for detailed instructions.
-
-### Dashboard
-
-The manually triggered workflow [`.github/workflows/deploy_dashapp.yml`](.github/workflows/deploy_dashapp.yml):
-
-1. Runs the reusable CI workflow.
-2. Authenticates to AWS using GitHub OIDC.
-3. Builds the dashboard image for `linux/amd64` from [`dash_app/Dockerfile`](dash_app/Dockerfile).
-4. Pushes the uniquely tagged image to the `population-dashboard` ECR repository.
-5. Prints the resulting ECR image URI in the GitHub Actions run summary.
-
-**At present, this workflow stops after uploading the image.** The dashboard Lambda was configured separately to use an ECR image. For future releases, update the function to the newly built image URI:
-
-```powershell
-$imageUri = "<ECR_IMAGE_URI_FROM_GITHUB_ACTIONS>"
-
-aws lambda update-function-code `
-  --function-name population-dashboard `
-  --image-uri $imageUri `
-  --region eu-north-1
-
-aws lambda wait function-updated-v2 `
-  --function-name population-dashboard `
-  --region eu-north-1
-```
-
-The public HTTPS endpoint is associated with the **dashboard Lambda**, not a separate Lambda function. Retrieve it using:
-
-```powershell
-aws lambda get-function-url-config `
-  --function-name population-dashboard `
-  --query FunctionUrl `
-  --output text `
-  --region eu-north-1
-```
-
-The dashboard runs **Gunicorn** on port `8080` behind **AWS Lambda Web Adapter**. Its runtime execution role has read access to the S3 population object; the GitHub Actions deployment role is a different IAM role used to build and deploy code.
-
-The Function URL is intended for public access without AWS login. Public traffic can incur AWS charges; budgets and monitoring are operational safeguards, **not a guaranteed spending cap**.
-
-## Run locally
-
-Use **Python 3.13** to match the GitHub Actions environment. From the repository root:
+Use Python 3.13. From the repository root:
 
 ```powershell
 python -m pip install -r requirements-dev.txt
-```
-
-The development requirements include the dashboard and ingestion dependencies. Authenticate with AWS using your normal local credentials or AWS profile. The dashboard needs `s3:GetObject` access to:
-
-```text
-s3://webgis-population-app/data/enriched_population_data.json
-```
-
-Start the development server:
-
-```powershell
+# Configure local AWS credentials with S3 read access to the population object
 python -m dash_app.app
 ```
 
-Open **http://127.0.0.1:8050**. This command uses Dash's development server, whereas the deployed container runs Gunicorn.
+Open `http://127.0.0.1:8050`. The local entry point uses the Dash development server; the deployed image uses Gunicorn. By default, the dashboard reads `s3://webgis-population-app/data/enriched_population_data.json` at startup. See [dashboard setup](dash_app/README.md) and [ingestion instructions](ingestion/README.md).
 
-For more on the UI implementation, see [dash_app/README.md](dash_app/README.md). Its deployment notes also need updating to reflect the live dashboard.
-
-## Tests and CI
-
-Run all Python tests from the repository root:
+### Run tests
 
 ```powershell
 python -m pytest -q
-```
-
-Or run only dashboard tests:
-
-```powershell
+# or dashboard-only:
 python -m pytest dash_app/tests -q
 ```
 
-Tests cover ingestion and pagination, metadata enrichment, data loading and preparation, chart generation, and country-selection callbacks. GitHub Actions runs reusable Python CI on pushes and pull requests. The current [`requirements-dev.txt`](requirements-dev.txt) includes `dash_app/requirements.txt`, so the previously documented missing-dashboard-dependencies issue has been addressed.
+These tests validate application and ingestion logic; they do not replace browser-based checks for globe rotation or responsive behavior. Agent live tests additionally require network access, model credentials, and sometimes AWS credentials; see the [agent README](agentic_framework/README.md).
 
-These tests do not replace browser-based testing of map rotation, click interactions, resizing, or responsive layout.
+### Build and deploy
 
-## Data interpretation and known limitations
+- [Ingestion deployment](.github/workflows/deploy_ingestion.yml): manually initiated; runs CI, builds and pushes an ECR image, **updates ingestion Lambda**. Then separately invoke ingestion to refresh S3.
+- [Dashboard image build](.github/workflows/deploy_dashapp.yml): manually initiated; runs CI, builds and pushes the dashboard container image to ECR. **Does not update the dashboard Lambda code**. Follow [dashboard deployment instructions](dash_app/README.md) for the manual image update.
 
-- World Bank economies include territories and non-sovereign entities, not only sovereign states.
-- Aggregate entries are identified using World Bank metadata and excluded from individual-economy visualisations.
-- Missing population values are preserved as `null`, not converted to zero. Uncoloured land on the globe should not be interpreted as zero population.
-- An economy's most recent available observation can be from a different year than the globe's reference year; both are labelled in the application.
-- The globe uses a logarithmic colour transform, whereas hover labels and charts display population values.
-- Pagination and count checks help detect incomplete retrieval, but do not guarantee a consistent source snapshot or validate every observation.
-- Ingestion retries, partial-run recovery, and broader checks using Great Expectations have not yet been implemented.
-- Each dashboard Python process loads the S3 dataset at startup. Existing warm Lambda environments may continue to use an older in-memory snapshot after S3 is updated; automatic cache invalidation is not yet implemented.
-- Extreme vertical globe rotation can trigger a Plotly rendering issue in which the globe briefly collapses. This remains under investigation.
-- AWS bucket, object key, and region are currently configured in Python rather than environment variables.
+AWS charges may be incurred by the public endpoint; budgets and alerts are not hard usage limits.
 
-## Repository structure
+## Known limitations and next steps
 
-| Path | Responsibility |
-| --- | --- |
-| `ingestion/` | World Bank API extraction, enrichment, S3 upload, and ingestion Lambda packaging |
-| `dash_app/` | Dash application, charts, callbacks, CSS, Dockerfile, and dashboard tests |
-| `tests/` | Ingestion tests |
-| `.github/workflows/ci.yml` | Reusable Python CI |
-| `.github/workflows/deploy_ingestion.yml` | Manually triggered ingestion build and Lambda update |
-| `.github/workflows/deploy_dashapp.yml` | Manually triggered dashboard image build and ECR push |
-| `requirements-dev.txt` | Development and testing dependencies |
+- No scheduled ingestion, automatic S3 freshness metadata, or cache invalidation for warm dashboard processes.
+- No comprehensive content-level data-quality validation beyond the existing ingestion checks.
+- The Plotly globe can exhibit a rendering issue under extreme vertical rotation.
+- Some deployment settings remain hard-coded; the dashboard Lambda image update is manual.
+- The agent is not connected to the public dashboard; its model output and SQL results require careful verification and are not production-safe by default.
 
-## Roadmap
+Near-term priorities: improve dashboard refresh/reliability; test and evaluate the agent against fixed reference queries; build its S3 cache catalog and provenance records; and only then consider UI integration or deployment.
 
-- [ ] Automate the dashboard Lambda image update after a successful GitHub Actions image build.
-- [ ] Add repeatable dataset refresh and freshness/status metadata; keep the last successfully loaded dataset available if refreshing fails.
-- [ ] Add broader data-quality checks, including schema, range, missingness, and duplicate validation.
-- [ ] Investigate and fix the extreme-rotation Plotly rendering issue.
-- [ ] Move deployment-specific configuration into environment variables.
-- [ ] Explore an **MCP-powered World Bank data agent** that discovers indicators, performs auditable retrieval and transformations, and exposes the underlying sources and queries. This is a future extension, not part of the current application.
+## Data source and attribution
 
-## Data source
+Population data: [World Bank — Population, total (`SP.POP.TOTL`)](https://data.worldbank.org/indicator/SP.POP.TOTL). Source API: [World Bank Indicators API](https://datahelpdesk.worldbank.org/knowledgebase/topics/125589-developer-information). Agent source: [World Bank Data360 MCP](https://worldbank.github.io/data360-mcp/). The two World Bank interfaces may expose different datasets, definitions, or revisions; their observations should not be treated as automatically identical.
 
-Population observations come from the [World Bank — Population, total (`SP.POP.TOTL`)](https://data.worldbank.org/indicator/SP.POP.TOTL).
-
-API reference: [World Bank Indicators API documentation](https://datahelpdesk.worldbank.org/knowledgebase/topics/125589-developer-information).
-
-Review World Bank attribution and reuse terms before redistributing data or publishing derivative datasets.
+For more on engineering trade-offs, see [Architecture Decision Log](agentic_framework/docs/DECISIONS.md).
