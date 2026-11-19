@@ -134,6 +134,19 @@
 **Validation planned:** Offline mocked-model tests for successful follow-ups, rejected SQL followed by recovery, exhausted budgets, invalid references, failed final synthesis and preservation of the original result. Numerical tests for increasing/decreasing series, chronological endpoint change rather than extrema, missing endpoints and zero denominators. Test evidence limits and semantic claims separately; measure latency and usage in controlled live runs.  
 **Revisit when:** Adding retrieval tools, broader SQL capabilities, persistent evidence, stronger semantic validation or protected asynchronous deployment.
 
+## ADR-014 — Incremental controller extraction and partial outcomes
+
+**Status:** Accepted on 19 November 2026; implementation pending.  
+**Context:** Follow-up analysis introduces conversation state, evidence, tool dispatch and budgets. The existing Dash adapter relies on the return contract of `answer_question()`.  
+**Decision:** Populate the existing `controller.py` incrementally, initially with the analytical loop invoked after the first successful query. Keep `answer_question()` and connection ownership in `main.py` during this step. The controller borrows the open connection and does not close it. The owner closes it in `finally` on normal return or propagated exceptions. Budget exhaustion ends tool use; final synthesis or fallback is completed before the workflow returns. Moving the entire orchestrator into the controller is a later refactor, not required to introduce the loop.  
+**Return contract:** Preserve the original `results` DataFrame and its matching `sql`, plus existing metadata and other fields. Add `answer`, `analysis_status` and `analysis_reason` for explicit complete/partial outcomes. Keep follow-up SQL/result pairs in the evidence registry rather than overwriting the initial pair. Expected budget exhaustion returns a partial outcome; unexpected failures require explicit handling rather than being indiscriminately treated as successful analysis. Status is machine-readable workflow information, not a guarantee of semantic correctness.  
+**UI consequence:** Existing callbacks can continue displaying the initial table, SQL and metadata. Displaying the answer and partial status requires an explicit GUI change. Pushing code makes it available to clones after a pull; it neither updates existing clones automatically nor deploys the agent publicly.  
+**Implementation sequence:** First implement a per-question evidence registry, then the bounded controller and validated synthesis, then UI rendering. Preserve evidence against accidental caller mutation; reject ambiguous duplicate result column labels before cell referencing. Each stage receives offline tests and a design review before the next stage.  
+**Alternatives:** Move the entire workflow at once; let the controller close a borrowed connection; discard initial results on exhausted follow-ups; infer status by parsing model prose.  
+**Trade-offs:** A temporary split between initial orchestration and follow-up control reduces simultaneous changes and preserves compatibility. The new contract needs tests even while the GUI ignores its added fields.  
+**Validation planned:** Registry isolation and unambiguous references; partial-result preservation; SQL/result pairing; connection cleanup on normal and exceptional exits; existing callback compatibility.  
+**Revisit when:** The loop is stable enough to move full orchestration out of `main.py`.
+
 ## Decision review checklist
 
 When a decision changes, record: **context → decision → alternatives → implementation status → consequences → tests → conditions for revision**. Avoid labeling a proposed future architecture as deployed or production-ready. Update this log alongside significant changes to `main.py`, retrieval/normalization behavior, SQL restrictions and storage semantics.
