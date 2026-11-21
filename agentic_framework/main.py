@@ -1,15 +1,15 @@
 """
 This is a prototype demonstrating how to use Qwen and the World Bank MCP
 to answer analytical questions about World Bank indicators.
-The prototype retrieves complete observations and metadata for a selected indicator,
+The prototype retrieves complete observations and metadata for multiple selected indicators,
 normalizes the data, and creates an in-memory DuckDB database. 
 It then asks Qwen to generate a SQL query based on the user's question and the live schema,
-validates the SQL, executes it, and returns the results.
-It is currently limited to one indicator, one country, and a specified year range. 
-It does not support CTEs, subqueries, window functions, or SELECT *.
+validates the SQL, executes it, returns the results, and answers the question.
+It does not support CTEs, subqueries, window functions, or SELECT *, yet,
+but it can handle multiple indicators and multiple countries in one question.
 The prototype also persists the raw and normalized data to S3 for caching and future reference.
 but no lazy ingestion/retreival of the data is performed. 
-The prototype is intended for demonstration purposes only and is not production-ready.
+The prototype is not production-ready, pending lazy ingestion/loading implementation.
 """
 import asyncio
 import json
@@ -24,7 +24,8 @@ from mcp import Client
 from agentic_framework.llm_client import (
     get_model_completion,
     get_model_response,
-    decompose_question
+    decompose_question,
+    generate_sql,
 )
 
 from agentic_framework.mcp_client import (
@@ -137,68 +138,6 @@ def save_parquet(s3, key: str, dataframe) -> None:
         Body=buffer.getvalue(),
         ContentType="application/octet-stream",
     )
-
-
-def generate_sql(
-    question: str,
-    schema: str,
-    selections: list[dict],
-) -> str:
-    """Ask Qwen to generate DuckDB SQL using the live schema."""
-
-    prompt = f"""
-    You are generating SQL for a DuckDB analytical database.
-
-    Return exactly one SELECT statement.
-    Return ONLY SQL without Markdown or explanations.
-
-    Actual available database schema:
-
-    {schema}
-
-    Selected datasets:
-
-    {json.dumps(selections, indent=2)}
-
-    Rules:
-    - Use only existing tables and columns.
-    - The observations table contains rows from all selected indicators.
-    - Every observation has indicator_id, country_iso3, year and value.
-    - Preserve the distinction between indicators.
-    - Filter by the exact relevant indicator IDs and countries.
-    - Respect the requested time ranges.
-    - The indicators table contains indicator metadata.
-    - Do not introduce Cartesian products.
-    - Do not use CTEs, subqueries, window functions or SELECT *.
-    - Use only read-only SELECT statements.
-    - Do not use external files, URLs or database functions.
-    - Use DuckDB-compatible SQL.
-    - Return at most 1000 rows.
-
-    For questions involving multiple indicators:
-    - You may use conditional aggregation to align their values by year.
-    - Use CASE WHEN indicator_id = '...' THEN value END.
-    - Use MAX with GROUP BY year to obtain one column per indicator,
-    when appropriate and when observations are unique per indicator/year.
-    - Do not join observations to itself.
-    - Do not mix observations from different countries.
-    - Use aliases that clearly identify the measurements.
-    - If the user requests separate series, you may return a long-form
-    result containing year, indicator_id and value instead.
-
-    For single-indicator questions:
-    - Continue using the original simple SELECT approach.
-
-    User question:
-    {question}
-    """
-
-    sql = get_model_response(prompt).strip()
-
-    if not sql:
-        raise ValueError("Qwen returned empty SQL.")
-
-    return sql
 
 
 def verify_observation_scope(

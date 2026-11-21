@@ -2,7 +2,9 @@ import asyncio
 import json
 
 from agentic_framework import main
+from agentic_framework import llm_client
 from agentic_framework.sql_guard import validate_sql
+from agentic_framework import discovery
 
 
 QUESTION = (
@@ -28,33 +30,33 @@ REQUIREMENTS = [
 
 def test_decomposition_two_measurements(monkeypatch):
     monkeypatch.setattr(
-        main,
+        llm_client,
         "get_model_response",
         lambda prompt: json.dumps(REQUIREMENTS),
     )
 
-    actual = main.decompose_question(QUESTION)
+    actual = llm_client.decompose_question(QUESTION)
 
     assert actual == REQUIREMENTS
 
 
 def test_decomposition_removes_duplicates(monkeypatch):
     monkeypatch.setattr(
-        main,
+        llm_client,
         "get_model_response",
         lambda prompt: json.dumps(
             [REQUIREMENTS[0], REQUIREMENTS[0]]
         ),
     )
 
-    assert main.decompose_question(QUESTION) == [
+    assert llm_client.decompose_question(QUESTION) == [
         REQUIREMENTS[0]
     ]
 
 
 def test_discovery_processes_both_requirements(monkeypatch):
     monkeypatch.setattr(
-        main,
+        discovery,
         "decompose_question",
         lambda question: REQUIREMENTS,
     )
@@ -77,13 +79,13 @@ def test_discovery_processes_both_requirements(monkeypatch):
         }
 
     monkeypatch.setattr(
-        main,
+        discovery,
         "discover_single_indicator",
         fake_discover,
     )
 
     selections = asyncio.run(
-        main.discover_indicators(
+        discovery.discover_indicators(
             client=None,
             question=QUESTION,
         )
