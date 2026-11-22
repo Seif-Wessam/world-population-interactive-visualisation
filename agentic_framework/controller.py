@@ -3,10 +3,12 @@ import json
 import math
 from numbers import Integral, Real
 import duckdb
+import re
+
 from agentic_framework.analytics import (
     execute_query,
 )
-import re
+
 
 class EvidenceRegistry:
     """SQL results for one question; accepts executed results only."""
@@ -281,61 +283,97 @@ def run_analysis_loop(
     metadata,
     selections,
     initial_sql,
-    initial_results,
     approved_tables,
     choose_action,
     render_answer,
     max_turns=4,
+    max_sql_attempts=5,
     max_state_bytes=48_000,
 ):
     """Run bounded analysis over an already-open DuckDB connection."""
-
-    if max_turns < 0 or max_state_bytes < 1:
+    
+    if max_turns < 0 or max_sql_attempts < 1 or max_state_bytes < 1 :
         raise ValueError("Invalid analysis limits.")
-
     registry = EvidenceRegistry()
-    initial_id = registry.add(initial_sql, initial_results)
+    first_result_id = None
+    sql_attempts = 0
 
-    def partial(reason):
+    def execute_attempt(query):
+        nonlocal sql_attempts, first_result_id
+        # Count attempts, including rejected SQL.
+        sql_attempts += 1
+        feedback = run_sql_tool(
+            query=query,
+            con=con,
+            approved_tables=approved_tables,
+            registry=registry,
+        )
+        # Include the rejected SQL so Qwen can interpret its error.
+        feedback = {**feedback, "query": query}
+        # An evidence_error can still have a successfully executed,
+        # registered DataFrame that remains available to the user.
+        result_id = feedback.get("result_id")
+        if first_result_id is None and result_id is not None:
+            first_result_id = result_id
+        return feedback
+
+    def outcome(answer, status, reason):
+        if first_result_id is None:
+            sql, results = None, None
+        else:
+            sql, results = registry.get(first_result_id)
         return {
-            "answer": (
-                "The initial query result is available, but "
-                "the additional analysis could not be completed."
-            ),
-            "analysis_status": "partial",
+            "sql": sql,
+            "results": results,
+            "answer": answer,
+            "analysis_status": status,
             "analysis_reason": reason,
         }
 
-    try:
-        initial_evidence = json.loads(
-            evidence_json(registry, initial_id)
+    def partial(reason):
+        if first_result_id is None:
+            return outcome(
+                "No SQL query completed successfully, so no "
+                "analytical result is available.",
+                "failed",
+                reason,
+            )
+        return outcome(
+            "A query result is available, but the analysis "
+            "could not be completed.",
+            "partial",
+            reason,
         )
-    except ValueError:
-        return partial("initial_evidence_error")
-
+    
+    initial_feedback = execute_attempt(initial_sql)
     state = {
         "question": question,
         "schema": schema,
         "metadata": metadata,
         "selections": selections,
-        "initial_evidence": initial_evidence,
+        "initial_evidence": initial_feedback.get("evidence"),
         "follow_ups": [],
     }
+    if initial_feedback["status"] != "success":
+        state["follow_ups"].append(initial_feedback)
 
     # max_turns ordinary calls, then one final answer-only call.
     for turn in range(max_turns + 1):
-        allow_sql = turn < max_turns
-
+        allow_sql = (
+            turn < max_turns
+            and sql_attempts < max_sql_attempts
+        )
+        state["sql_attempts_remaining"] = (
+            max_sql_attempts - sql_attempts
+        )
         state_json = json.dumps(
             state,
             ensure_ascii=False,
             allow_nan=False,
             separators=(",", ":"),
         )
-
         if len(state_json.encode("utf-8")) > max_state_bytes:
             return partial("context_budget_reached")
-
         # The adapter must translate expected provider failures
         # into RuntimeError. Unexpected programming errors propagate.
         try:
@@ -351,16 +389,19 @@ def run_analysis_loop(
                 "error": str(exc),
             })
             continue
-
         if not isinstance(action, dict):
             state["follow_ups"].append({
                 "status": "invalid_action",
                 "error": "Expected an action object.",
             })
             continue
-
         if action.get("kind") == "answer":
             try:
+                if first_result_id is None:
+                    raise ValueError(
+                        "No successful SQL result is available. "
+                        "Request corrected SQL if SQL is allowed."
+                    )
                 answer = render_answer(
                     action.get("answer"),
                     registry,
@@ -373,27 +414,23 @@ def run_analysis_loop(
                     "error": str(exc),
                 })
                 continue
-
-            return {
-                "answer": answer,
-                "analysis_status": "complete",
-                "analysis_reason": None,
-            }
-
-        if action.get("kind") == "sql":
-            # Enforce this in Python even if Qwen ignores instructions.
-            if not allow_sql:
-                return partial("turn_limit_reached")
-
-            feedback = run_sql_tool(
-                query=action.get("query"),
-                con=con,
-                approved_tables=approved_tables,
-                registry=registry,
+            return outcome(
+                answer,
+                "complete",
+                None,
             )
+        if action.get("kind") == "sql":
+            if not allow_sql:
+                reason = (
+                    "sql_attempt_limit_reached"
+                    if sql_attempts >= max_sql_attempts
+                    else "turn_limit_reached"
+                )
+                return partial(reason)
+
+            feedback = execute_attempt(action.get("query"))
             state["follow_ups"].append(feedback)
             continue
-
         state["follow_ups"].append({
             "status": "invalid_action",
             "error": "Choose either 'sql' or 'answer'.",

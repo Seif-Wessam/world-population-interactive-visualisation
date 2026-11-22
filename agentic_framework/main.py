@@ -26,6 +26,7 @@ from agentic_framework.llm_client import (
     get_model_response,
     decompose_question,
     generate_sql,
+    choose_action
 )
 
 from agentic_framework.mcp_client import (
@@ -47,6 +48,11 @@ from agentic_framework.discovery import (
     discover_indicators,
     discover_single_indicator,
     parse_model_json,
+)
+
+from agentic_framework.controller import (
+    run_analysis_loop,
+    render_answer,
 )
 
 
@@ -297,6 +303,19 @@ async def answer_question(question: str) -> dict:
             sql,
             APPROVED_TABLES,
         )
+        metadata = indicators.to_dict("records")
+        analysis = run_analysis_loop(
+            question=question,
+            con=con,
+            schema=schema,
+            metadata=metadata,
+            selections=selections,
+            initial_sql=sql,
+            initial_results=results,
+            approved_tables=APPROVED_TABLES,
+            choose_action=choose_action,
+            render_answer=render_answer,
+        )
 
         return {
             "question": question,
@@ -306,6 +325,9 @@ async def answer_question(question: str) -> dict:
             "results": results,
             "metadata": indicators.to_dict("records"),
             "s3_prefixes": s3_prefixes,
+            "answer": analysis["answer"],
+            "analysis_status": analysis["analysis_status"],
+            "analysis_reason": analysis["analysis_reason"],
         }
 
     finally:
