@@ -122,7 +122,7 @@
 
 ## ADR-013 — Bounded follow-up SQL and evidence-grounded answer synthesis
 
-**Status:** Accepted on 19 November 2026; not implemented.  
+**Status:** Accepted on 19 November 2026; implemented locally.  
 **Context:** The current workflow returns validated SQL results but no natural-language answer. A fixed catalog of follow-up calculations would restrict the analytical questions the project can answer.  
 **Decision:** After the initial successful query, let Qwen request further queries through a single `run_sql(query)` tool against the same open DuckDB connection, or propose a final answer. Every query must pass the existing SQL guard and execute through the analytical layer. This first loop does not perform additional MCP discovery or retrieval, and does not broaden the supported SQL subset. Qwen chooses calculations; DuckDB performs them.  
 **Evidence:** Maintain a per-question registry of successful SQL and result DataFrames, beginning with `result_0` for the initial result. Assign subsequent IDs only to successful executions. Preserve initial evidence independently of later failures. This is an in-memory execution record, not the durable snapshot/audit system proposed in ADR-010.  
@@ -136,7 +136,7 @@
 
 ## ADR-014 — Incremental controller extraction and partial outcomes
 
-**Status:** Accepted on 19 November 2026; implementation pending.  
+**Status:** Accepted on 19 November 2026; implemented locally.  
 **Context:** Follow-up analysis introduces conversation state, evidence, tool dispatch and budgets. The existing Dash adapter relies on the return contract of `answer_question()`.  
 **Decision:** Populate the existing `controller.py` incrementally, initially with the analytical loop invoked after the first successful query. Keep `answer_question()` and connection ownership in `main.py` during this step. The controller borrows the open connection and does not close it. The owner closes it in `finally` on normal return or propagated exceptions. Budget exhaustion ends tool use; final synthesis or fallback is completed before the workflow returns. Moving the entire orchestrator into the controller is a later refactor, not required to introduce the loop.  
 **Return contract:** Preserve the original `results` DataFrame and its matching `sql`, plus existing metadata and other fields. Add `answer`, `analysis_status` and `analysis_reason` for explicit complete/partial outcomes. Keep follow-up SQL/result pairs in the evidence registry rather than overwriting the initial pair. Expected budget exhaustion returns a partial outcome; unexpected failures require explicit handling rather than being indiscriminately treated as successful analysis. Status is machine-readable workflow information, not a guarantee of semantic correctness.  
@@ -146,6 +146,52 @@
 **Trade-offs:** A temporary split between initial orchestration and follow-up control reduces simultaneous changes and preserves compatibility. The new contract needs tests even while the GUI ignores its added fields.  
 **Validation planned:** Registry isolation and unambiguous references; partial-result preservation; SQL/result pairing; connection cleanup on normal and exceptional exits; existing callback compatibility.  
 **Revisit when:** The loop is stable enough to move full orchestration out of `main.py`.
+
+## ADR-015 — Direct answer synthesis from executed SQL evidence
+
+**Status:** Implemented locally; live-tested on 23 November 2026.
+Supersedes the numerical template/reference mechanism in ADR-013.
+
+**Context:** Requiring answer templates with cell references introduced
+formatting failures and additional complexity. Valid references still
+did not guarantee correct interpretation: a population cell could be
+incorrectly described as a year.
+
+**Decision:** Let Qwen return a natural-language answer directly from
+the supplied SQL results and metadata. Remove placeholder rendering
+and validate that the answer is non-empty text. Retain the evidence
+registry, guarded SQL execution, bounded follow-up queries, evidence
+size limits, and preservation of the first successful SQL/result pair.
+The controller executes the initial query and any follow-ups; main
+owns the connection and closes it in finally.
+
+**Grounding:** Instruct Qwen to obtain calculations through SQL,
+accurately reproduce results, preserve units, acknowledge missing
+data, and limit conclusions to what the evidence supports. Endpoint
+comparisons must select observations by year rather than substitute
+minimum and maximum values across the period.
+
+**Trade-offs:** Simpler synthesis and fewer formatting failures.
+Numerical accuracy and completeness of the prose are not enforced
+deterministically. Prompt instructions and live evaluations improve
+confidence but do not guarantee future correctness. A complete status
+means the workflow accepted an answer, not that its semantics were proven.
+
+**Alternatives:** Retain placeholder-based rendering; use fixed answer
+templates; introduce richer semantic validation.
+
+**Validation:** A live Egypt population comparison for 2000 and 2023
+produced explicit endpoint SQL and an answer matching its returned
+populations, absolute change, and percentage change. Offline controller
+tests were updated for string answers and invalid-answer recovery.
+This live case does not establish general analytical accuracy.
+
+**UI consequence:** Displaying the answer and status requires explicit
+GUI changes. Supporting follow-up results should also be exposed when
+the answer relies on them.
+
+**Revisit when:** Broader evaluations reveal recurring numerical or
+interpretation errors, or stronger guarantees become necessary.
 
 ## Decision review checklist
 

@@ -35,12 +35,14 @@ load_dotenv(Path(__file__).with_name(".env"))
 # 2. Retrieve configuration
 token = os.environ["HF_TOKEN"]
 model = os.getenv("MODEL_NAME", "Qwen/Qwen3.5-9B")
+fallback_model = os.getenv("FALLBACK_MODEL_NAME", "").strip()
 
 # 3. Initialize the Hugging Face inference client
 client = InferenceClient(
     api_key=token,
-    provider="deepinfra" 
+    provider="deepinfra", 
 )
+
 
 
 def _retry_after_seconds(response) -> float | None:
@@ -98,7 +100,7 @@ def _create_completion_with_retries(**kwargs):
 
             # Approximately 2 seconds, then 4 seconds.
             delay = (
-                2 ** attempt
+                2 ** attempt / 4
                 + random.uniform(0.0, 1.0)
             )
 
@@ -124,9 +126,70 @@ def _create_completion_with_retries(**kwargs):
 
             time.sleep(delay)
 
+
+def _create_completion_with_fallback(**kwargs):
+    """Try the primary model, then one configured fallback attempt."""
+    primary_model = kwargs["model"]
+
+    try:
+        return _create_completion_with_retries(**kwargs)
+    except ModelUnavailableError as exc:
+        if not fallback_model or fallback_model == primary_model:
+            raise
+
+        # A long Retry-After can apply to the shared provider/account.
+        # Do not bypass it by immediately switching models.
+        cause = exc.__cause__
+        response = getattr(cause, "response", None)
+
+        if response is not None:
+            delay = _retry_after_seconds(response)
+            if delay is not None and delay > 0:
+                if delay > MAX_RETRY_DELAY:
+                    raise
+                time.sleep(delay)
+
+        fallback_request = dict(kwargs)
+        fallback_request["model"] = fallback_model
+
+        if fallback_model == "Qwen/Qwen3-235B-A22B-Instruct-2507":
+            extra = dict(fallback_request.get("extra_body") or {})
+
+            extra.pop("chat_template_kwargs", None)
+            extra.pop("enable_thinking", None)
+            extra.pop("reasoning", None)
+
+            if extra:
+                fallback_request["extra_body"] = extra
+            else:
+                fallback_request.pop("extra_body", None)
+
+        logger.warning(
+            "Primary model %s unavailable; trying fallback %s with bounded retries.",
+            primary_model,
+            fallback_model,
+        )
+
+        try:
+            result = _create_completion_with_retries(
+                **fallback_request
+            )
+        except ModelUnavailableError as fallback_exc:
+            raise ModelUnavailableError(
+                f"Primary model {primary_model} and fallback "
+                f"{fallback_model} were unavailable."
+            ) from fallback_exc
+
+        logger.info(
+            "Fallback model %s completed the request.",
+            fallback_model,
+        )
+        return result
+
+
 def get_model_response(prompt: str) -> str:
     """Send a prompt to Qwen and return its text response."""
-    response = _create_completion_with_retries(
+    response = _create_completion_with_fallback(
         model=model,
         messages=[
             {"role": "user", "content": prompt}
@@ -144,6 +207,9 @@ def get_model_response(prompt: str) -> str:
     content = choice.message.content or ""
 
     if not content.strip():
+        print("Finish reason:", choice.finish_reason)
+        print("Message:", choice.message)
+        print("Usage:", response.usage)
         raise RuntimeError("Qwen returned an empty response.")
 
     return content
@@ -253,7 +319,7 @@ def get_model_completion(messages: list, tools: list):
 
     Returns the full API response, including proposed tool calls.
     """
-    return client.chat.completions.create(
+    return _create_completion_with_fallback(
         model=model,
         messages=messages,
         tools=tools,
@@ -314,6 +380,21 @@ def generate_sql(
     For single-indicator questions:
     - Continue using the original simple SELECT approach.
 
+    For changes between specific years:
+    - Select each value by its requested year, using conditional aggregation.
+    - Never use MIN(value) or MAX(value) over the entire period as a
+    substitute for the first or last year's value.
+    - Minimum/maximum values and earliest/latest observations are different.
+    - Calculate absolute change as end_value - start_value.
+    - Calculate percentage change as
+    100.0 * (end_value - start_value) / NULLIF(start_value, 0).
+    - If a requested year's value is missing, preserve NULL.
+    Do not silently substitute another year.
+
+    Example endpoint selection:
+    MAX(CASE WHEN year = 2000 THEN value END) AS population_2000
+    MAX(CASE WHEN year = 2023 THEN value END) AS population_2023
+
     User question:
     {question}
     """
@@ -355,6 +436,21 @@ def choose_action(
     - Do not use UNION, UNION ALL, INTERSECT or EXCEPT.
     - To retrieve multiple years from the same table, use WHERE year IN (...).
 
+    For changes between specific years:
+    - Select each value by its requested year, using conditional aggregation.
+    - Never use MIN(value) or MAX(value) over the entire period as a
+    substitute for the first or last year's value.
+    - Minimum/maximum values and earliest/latest observations are different.
+    - Calculate absolute change as end_value - start_value.
+    - Calculate percentage change as
+    100.0 * (end_value - start_value) / NULLIF(start_value, 0).
+    - If a requested year's value is missing, preserve NULL.
+    Do not silently substitute another year.
+
+    Example endpoint selection:
+    MAX(CASE WHEN year = 2000 THEN value END) AS population_2000
+    MAX(CASE WHEN year = 2023 THEN value END) AS population_2023
+
     Return exactly one JSON object, with no Markdown.
 
     For SQL:
@@ -362,32 +458,23 @@ def choose_action(
 
     For an answer:
     {
-    "kind": "answer",
-    "answer": {
-        "template": "The population was {{population}}.",
-        "references": {
-        "population": {
-            "result_id": "result_0",
-            "row": 0,
-            "column": "population"
-        }
-        }
-    }
+        "kind": "answer",
+        "answer": "A clear explanation grounded in the supplied results."
     }
 
     Answer rules:
-    - Every numerical value, including years, must use a placeholder.
-    - Never write numbers directly, including numbers written as words.
-    - Placeholders must use names containing only letters and underscores.
-    - Each placeholder must have exactly one reference.
-    - Row references use zero-based positions, not DataFrame index labels.
-    - Do not reference missing values.
-    - If evidence is insufficient, explicitly acknowledge the limitation.
-
-    - The initial query may have failed, so initial_evidence may be null.
-    - Failed SQL attempts are not evidence.
-    - When a query fails and SQL is allowed, use its error to propose a corrected query.
-    - Reference only result IDs present in successful execution feedback.
+    - Answer the original question using the supplied numerical evidence.
+    - Obtain calculations through SQL; do not perform arithmetic yourself.
+    - Copy numerical results accurately and preserve their units.
+    - You may use years from the question and SQL to describe the requested
+    scope, but do not claim observations exist unless results establish it.
+    - Two endpoint values establish net change, not a steady annual trend.
+    - Do not infer values from column names or results with withheld rows.
+    - Explain missing data and unsupported conclusions explicitly.
+    - If more evidence is needed and SQL is allowed, request it.
+    - If SQL is disabled, explain what the available evidence establishes
+    and what remains unanswered.
+    - Do not use placeholders or cell-reference objects.
     """
 
     mode = (
@@ -432,10 +519,16 @@ def choose_action(
 
     elif kind == "answer":
         if set(action) != {"kind", "answer"}:
-            raise ValueError("Answer actions require only kind and answer.")
+            raise ValueError(
+                "Answer actions require only kind and answer."
+            )
 
-        if not isinstance(action["answer"], dict):
-            raise ValueError("The answer must be an object.")
+        answer = action["answer"]
+
+        if not isinstance(answer, str) or not answer.strip():
+            raise ValueError("The answer must be non-empty text.")
+
+        action["answer"] = answer.strip()
 
     else:
         raise ValueError("Action kind must be 'sql' or 'answer'.")

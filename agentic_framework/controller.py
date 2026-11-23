@@ -8,7 +8,9 @@ import re
 from agentic_framework.analytics import (
     execute_query,
 )
+import logging
 
+logger = logging.getLogger(__name__)
 
 class EvidenceRegistry:
     """SQL results for one question; accepts executed results only."""
@@ -179,102 +181,6 @@ def run_sql_tool(
     }
 
 
-def render_answer(
-    proposal: dict,
-    registry: EvidenceRegistry,
-    ) -> str:
-    """Validate cell references and substitute numerical evidence."""
-
-    if not isinstance(proposal, dict):
-        raise ValueError("Answer proposal must be an object.")
-
-    if set(proposal) != {"template", "references"}:
-        raise ValueError("Answer requires template and references.")
-
-    template = proposal["template"]
-    references = proposal["references"]
-
-    if not isinstance(template, str) or not template.strip():
-        raise ValueError("Answer template must be non-empty text.")
-
-    if not isinstance(references, dict):
-        raise ValueError("References must be an object.")
-
-    pattern = re.compile(r"\{\{([A-Za-z_]+)\}\}")
-    names = set(pattern.findall(template))
-    prose = pattern.sub("", template)
-
-    if "{" in prose or "}" in prose:
-        raise ValueError("Malformed answer placeholder.")
-
-    if any(character.isnumeric() for character in prose):
-        raise ValueError("Numerical values must use evidence references.")
-
-    if names != set(references):
-        raise ValueError(
-            "Placeholders and reference names must match exactly."
-        )
-
-    replacements = {}
-
-    for name in names:
-        reference = references[name]
-
-        if (
-            not isinstance(reference, dict)
-            or set(reference) != {"result_id", "row", "column"}
-        ):
-            raise ValueError(f"Invalid reference structure: {name}.")
-
-        result_id = reference["result_id"]
-        row = reference["row"]
-        column = reference["column"]
-
-        if not isinstance(result_id, str):
-            raise ValueError("Result ID must be a string.")
-
-        # bool is a subclass of int, so use an exact type check.
-        if type(row) is not int or row < 0:
-            raise ValueError("Row must be a non-negative integer.")
-
-        if not isinstance(column, str):
-            raise ValueError("Column must be a string.")
-
-        try:
-            _, frame = registry.get(result_id)
-        except KeyError as exc:
-            raise ValueError(f"Unknown result: {result_id}.") from exc
-
-        if row >= len(frame):
-            raise ValueError(f"Row outside result: {result_id}.")
-
-        if column not in frame.columns:
-            raise ValueError(f"Unknown column: {column}.")
-
-        value = frame[column].iloc[row]
-
-        if pd.isna(value):
-            raise ValueError(f"Referenced value is missing: {name}.")
-
-        if isinstance(value, bool):
-            raise ValueError("Expected numerical evidence, not a boolean.")
-
-        if isinstance(value, Integral):
-            replacements[name] = str(int(value))
-        elif isinstance(value, Real):
-            number = float(value)
-            if not math.isfinite(number):
-                raise ValueError("Referenced value must be finite.")
-            replacements[name] = str(number)
-        else:
-            raise ValueError("References must point to numerical values.")
-
-    return pattern.sub(
-        lambda match: replacements[match.group(1)],
-        template,
-    )
-
-
 def run_analysis_loop(
     *,
     question,
@@ -285,7 +191,6 @@ def run_analysis_loop(
     initial_sql,
     approved_tables,
     choose_action,
-    render_answer,
     max_turns=4,
     max_sql_attempts=5,
     max_state_bytes=48_000,
@@ -384,6 +289,11 @@ def run_analysis_loop(
         except RuntimeError:
             return partial("model_unavailable")
         except ValueError as exc:
+            logger.warning(
+                "Analysis turn %s: invalid action: %s",
+                turn + 1,
+                exc,
+            )
             state["follow_ups"].append({
                 "status": "invalid_action",
                 "error": str(exc),
@@ -402,13 +312,17 @@ def run_analysis_loop(
                         "No successful SQL result is available. "
                         "Request corrected SQL if SQL is allowed."
                     )
-                answer = render_answer(
-                    action.get("answer"),
-                    registry,
-                )
+                answer = action.get("answer")
                 if not isinstance(answer, str) or not answer.strip():
                     raise ValueError("Expected a non-empty answer.")
+                answer = answer.strip()
             except ValueError as exc:
+                logger.warning(
+                    "Analysis turn %s: rejected answer: %s; proposal=%r",
+                    turn + 1,
+                    exc,
+                    action.get("answer"),
+                )
                 state["follow_ups"].append({
                     "status": "answer_error",
                     "error": str(exc),

@@ -1,7 +1,7 @@
 import json
 import pytest
 import pandas as pd
-from unittest.mock import Mock
+from unittest.mock import Mock, call
 
 from agentic_framework.controller import (
     EvidenceRegistry,
@@ -191,6 +191,12 @@ def test_run_sql_tool_preserves_initial_evidence_on_rejection(
 
 def test_analysis_loop_can_answer_without_follow_up_sql(monkeypatch):
     calls = []
+    connection = Mock()
+    sql = "SELECT value FROM observations"
+    expected = pd.DataFrame({"value": [100.5]})
+
+    execute = Mock(return_value=expected)
+    monkeypatch.setattr(controller, "execute_query", execute)
 
     def fake_choose_action(*, state_json, allow_sql):
         state = json.loads(state_json)
@@ -201,44 +207,41 @@ def test_analysis_loop_can_answer_without_follow_up_sql(monkeypatch):
 
         return {
             "kind": "answer",
-            "answer": {"test_proposal": True},
+            "answer": "Population was 100.5.",
         }
-
-    def fake_render_answer(proposal, registry):
-        assert proposal == {"test_proposal": True}
-        _, frame = registry.get("result_0")
-        assert frame.iloc[0, 0] == 100.5
-        return "Population was 100.5."
-
-    def unexpected_sql(**kwargs):
-        raise AssertionError("No follow-up SQL should execute.")
-
-    monkeypatch.setattr(
-        controller,
-        "run_sql_tool",
-        unexpected_sql,
-    )
 
     outcome = controller.run_analysis_loop(
         question="What was the population?",
-        con=object(),
+        con=connection,
         schema="test schema",
         metadata=[],
         selections=[],
-        initial_sql="SELECT value FROM observations",
-        initial_results=pd.DataFrame({"value": [100.5]}),
+        initial_sql=sql,
         approved_tables={"observations"},
         choose_action=fake_choose_action,
-        render_answer=fake_render_answer,
     )
 
-    assert outcome == {
-        "answer": "Population was 100.5.",
-        "analysis_status": "complete",
-        "analysis_reason": None,
-    }
-    assert calls == [True]
+    assert outcome["answer"] == "Population was 100.5."
+    assert outcome["analysis_status"] == "complete"
+    assert outcome["analysis_reason"] is None
+    assert outcome["sql"] == sql
+    pd.testing.assert_frame_equal(outcome["results"], expected)
 
+    execute.assert_called_once_with(
+        connection,
+        sql,
+        {"observations"},
+    )
+    assert calls == [True]
+    connection.close.assert_not_called()
+
+
+@pytest.fixture
+def initial_frame():
+    return pd.DataFrame({
+        "year": [2000, 2023],
+        "value": [100.0, 120.0],
+    })
 
 @pytest.fixture
 def analysis_inputs():
@@ -249,12 +252,7 @@ def analysis_inputs():
         "metadata": [],
         "selections": [],
         "initial_sql": "SELECT year, value FROM observations",
-        "initial_results": pd.DataFrame({
-            "year": [2000, 2023],
-            "value": [100.0, 120.0],
-        }),
         "approved_tables": {"observations"},
-        "render_answer": controller.render_answer,
     }
 
 
@@ -274,10 +272,11 @@ def answer_action(result_id, column):
     }
 
 
-def test_loop_uses_follow_up_evidence(monkeypatch, analysis_inputs):
+def test_loop_uses_follow_up_evidence(monkeypatch, analysis_inputs, initial_frame):
     """A follow-up result reaches Qwen and supports the answer."""
     sql = "SELECT 20.0 AS change FROM observations LIMIT 1"
-    execute = Mock(return_value=pd.DataFrame({"change": [20.0]}))
+    calculated = pd.DataFrame({"change": [20.0]})
+    execute = Mock(side_effect=[initial_frame, calculated])
     monkeypatch.setattr(controller, "execute_query", execute)
 
     states = []
@@ -285,42 +284,62 @@ def test_loop_uses_follow_up_evidence(monkeypatch, analysis_inputs):
     def choose(*, state_json, allow_sql):
         state = json.loads(state_json)
         states.append(state)
-
         if len(states) == 1:
+            assert allow_sql is True
+            assert state["initial_evidence"]["result_id"] == "result_0"
+            assert state["initial_evidence"]["rows"] == [
+                [2000, 100.0],
+                [2023, 120.0],
+            ]
             return {"kind": "sql", "query": sql}
-
         feedback = state["follow_ups"][-1]
         assert feedback["status"] == "success"
         assert feedback["result_id"] == "result_1"
         assert feedback["evidence"]["rows"] == [[20.0]]
 
-        return answer_action("result_1", "change")
+        return {
+            "kind": "answer",
+            "answer": "The change was 20.0.",
+        }
 
     outcome = controller.run_analysis_loop(
         **analysis_inputs,
         choose_action=choose,
     )
-
     assert outcome["answer"] == "The change was 20.0."
     assert outcome["analysis_status"] == "complete"
+    assert outcome["analysis_reason"] is None
     assert len(states) == 2
 
-    execute.assert_called_once_with(
-        analysis_inputs["con"],
-        sql,
-        analysis_inputs["approved_tables"],
-    )
+    assert execute.call_args_list == [
+        call(
+            analysis_inputs["con"],
+            analysis_inputs["initial_sql"],
+            analysis_inputs["approved_tables"],
+        ),
+        call(
+            analysis_inputs["con"],
+            sql,
+            analysis_inputs["approved_tables"],
+        ),
+    ]
+
+    # The answer uses follow-up evidence, while the returned
+    # supporting table remains the first successful result.
+    assert outcome["sql"] == analysis_inputs["initial_sql"]
+    pd.testing.assert_frame_equal(outcome["results"], initial_frame)
     analysis_inputs["con"].close.assert_not_called()
 
 
-def test_loop_retries_invalid_answer_reference(
-    monkeypatch, analysis_inputs
+@pytest.mark.parametrize("invalid_answer", [None, "", "   ", {}])
+def test_loop_retries_invalid_answer(
+    monkeypatch,
+    analysis_inputs,
+    initial_frame,
+    invalid_answer,
 ):
-    """An invalid answer reference produces feedback and allows correction."""
-    sql_tool = Mock(
-        side_effect=AssertionError("SQL was not requested.")
-    )
-    monkeypatch.setattr(controller, "run_sql_tool", sql_tool)
+    execute = Mock(return_value=initial_frame)
+    monkeypatch.setattr(controller, "execute_query", execute)
 
     states = []
 
@@ -329,24 +348,18 @@ def test_loop_retries_invalid_answer_reference(
         states.append(state)
 
         if len(states) == 1:
-            return answer_action("result_7", "value")
+            return {
+                "kind": "answer",
+                "answer": invalid_answer,
+            }
 
         feedback = state["follow_ups"][-1]
         assert feedback["status"] == "answer_error"
-        assert "Unknown result" in feedback["error"]
+        assert feedback["error"]
 
         return {
             "kind": "answer",
-            "answer": {
-                "template": "The initial value was {{initial}}.",
-                "references": {
-                    "initial": {
-                        "result_id": "result_0",
-                        "row": 0,
-                        "column": "value",
-                    }
-                },
-            },
+            "answer": "Population rose from 100 to 120.",
         }
 
     outcome = controller.run_analysis_loop(
@@ -354,48 +367,89 @@ def test_loop_retries_invalid_answer_reference(
         choose_action=choose,
     )
 
-    assert outcome["answer"] == "The initial value was 100.0."
-    assert outcome["analysis_status"] == "complete"
     assert len(states) == 2
-    sql_tool.assert_not_called()
+    assert outcome["analysis_status"] == "complete"
+    assert outcome["analysis_reason"] is None
+    assert outcome["answer"] == "Population rose from 100 to 120."
+
+    execute.assert_called_once_with(
+        analysis_inputs["con"],
+        analysis_inputs["initial_sql"],
+        analysis_inputs["approved_tables"],
+    )
+
+    assert outcome["sql"] == analysis_inputs["initial_sql"]
+    pd.testing.assert_frame_equal(
+        outcome["results"],
+        initial_frame,
+    )
+    analysis_inputs["con"].close.assert_not_called()
 
 
-def test_loop_bounds_rejected_queries(monkeypatch, analysis_inputs):
-    """Rejected SQL consumes the budget, and SQL cannot execute on the final turn."""
-    execute = Mock(side_effect=ValueError("Unsupported SQL."))
+def test_loop_bounds_rejected_queries(
+    monkeypatch, analysis_inputs, initial_frame
+):
+    original = initial_frame.copy(deep=True)
+    rejected_sql = "DELETE FROM observations"
+
+    execute = Mock(side_effect=[
+        initial_frame,
+        ValueError("Unsupported SQL."),
+        ValueError("Unsupported SQL."),
+    ])
     monkeypatch.setattr(controller, "execute_query", execute)
 
     allowed = []
     states = []
-    original = analysis_inputs["initial_results"].copy(deep=True)
 
     def choose(*, state_json, allow_sql):
         allowed.append(allow_sql)
         states.append(json.loads(state_json))
 
-        # Deliberately ignore the final-turn instruction.
-        return {
-            "kind": "sql",
-            "query": "DELETE FROM observations",
-        }
+        # Deliberately request SQL even on the answer-only turn.
+        return {"kind": "sql", "query": rejected_sql}
 
     outcome = controller.run_analysis_loop(
         **analysis_inputs,
         choose_action=choose,
         max_turns=2,
+        max_sql_attempts=5,
     )
 
     assert allowed == [True, True, False]
-    assert execute.call_count == 2
     assert outcome["analysis_status"] == "partial"
     assert outcome["analysis_reason"] == "turn_limit_reached"
 
+    assert execute.call_args_list == [
+        call(
+            analysis_inputs["con"],
+            analysis_inputs["initial_sql"],
+            analysis_inputs["approved_tables"],
+        ),
+        call(
+            analysis_inputs["con"],
+            rejected_sql,
+            analysis_inputs["approved_tables"],
+        ),
+        call(
+            analysis_inputs["con"],
+            rejected_sql,
+            analysis_inputs["approved_tables"],
+        ),
+    ]
+
     assert [
-        item["status"] for item in states[-1]["follow_ups"]
+        item["status"]
+        for item in states[-1]["follow_ups"]
     ] == ["query_error", "query_error"]
 
-    pd.testing.assert_frame_equal(
-        analysis_inputs["initial_results"],
-        original,
-    )
+    # Initial success and both rejected attempts consume SQL budget.
+    assert [
+        state["sql_attempts_remaining"]
+        for state in states
+    ] == [4, 3, 2]
+
+    assert outcome["sql"] == analysis_inputs["initial_sql"]
+    pd.testing.assert_frame_equal(outcome["results"], original)
+    pd.testing.assert_frame_equal(initial_frame, original)
     analysis_inputs["con"].close.assert_not_called()
