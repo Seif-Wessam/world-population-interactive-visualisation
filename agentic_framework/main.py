@@ -49,6 +49,8 @@ from agentic_framework.controller import (
     run_analysis_loop,
 )
 
+from agentic_framework.model_runtime import model_session
+
 
 APPROVED_TABLES = {"observations", "indicators"}
 

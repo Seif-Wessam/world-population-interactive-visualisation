@@ -1,196 +1,13 @@
 
-import os
-from pathlib import Path
-from urllib import response
+from agentic_framework.model_runtime import create_completion
+
 import json
 import re
-
-from dotenv import load_dotenv
-from huggingface_hub import InferenceClient
-
-import logging
-import random
-import time
-from datetime import datetime, timezone
-from email.utils import parsedate_to_datetime
-
-from huggingface_hub.errors import HfHubHTTPError
-
-
-logger = logging.getLogger(__name__)
-
-RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
-MAX_PROVIDER_ATTEMPTS = 3
-MAX_RETRY_DELAY = 30.0
-
-
-class ModelUnavailableError(RuntimeError):
-    """The provider remained unavailable within our retry policy."""
-
-
-
-# 1. Load environment variables from this module's .env
-load_dotenv(Path(__file__).with_name(".env"))
-
-# 2. Retrieve configuration
-token = os.environ["HF_TOKEN"]
-model = os.getenv("MODEL_NAME", "Qwen/Qwen3.5-9B")
-fallback_model = os.getenv("FALLBACK_MODEL_NAME", "").strip()
-
-# 3. Initialize the Hugging Face inference client
-client = InferenceClient(
-    api_key=token,
-    provider="deepinfra", 
-)
-
-
-
-def _retry_after_seconds(response) -> float | None:
-    """Read the provider's minimum waiting time, if valid."""
-    value = response.headers.get("Retry-After")
-
-    if value is None:
-        return None
-
-    value = value.strip()
-
-    if value.isascii() and value.isdigit():
-        return float(value)
-
-    try:
-        retry_at = parsedate_to_datetime(value)
-
-        if retry_at.tzinfo is None:
-            retry_at = retry_at.replace(tzinfo=timezone.utc)
-
-        return max(
-            0.0,
-            (
-                retry_at - datetime.now(timezone.utc)
-            ).total_seconds(),
-        )
-    except (TypeError, ValueError, OverflowError):
-        return None
-
-
-def _create_completion_with_retries(**kwargs):
-    """Retry temporary HTTP failures for one model request."""
-    for attempt in range(1, MAX_PROVIDER_ATTEMPTS + 1):
-        try:
-            return client.chat.completions.create(**kwargs)
-
-        except HfHubHTTPError as exc:
-            response = exc.response
-            status = (
-                response.status_code
-                if response is not None
-                else None
-            )
-
-            # Authentication, billing and invalid requests need
-            # correction, rather than repeated identical requests.
-            if status not in RETRYABLE_STATUSES:
-                raise
-
-            if attempt == MAX_PROVIDER_ATTEMPTS:
-                raise ModelUnavailableError(
-                    f"Model request failed after {attempt} attempts "
-                    f"(HTTP {status})."
-                ) from exc
-
-            # Approximately 2 seconds, then 4 seconds.
-            delay = (
-                2 ** attempt / 4
-                + random.uniform(0.0, 1.0)
-            )
-
-            retry_after = _retry_after_seconds(response)
-
-            if retry_after is not None:
-                if retry_after > MAX_RETRY_DELAY:
-                    raise ModelUnavailableError(
-                        "Provider requested a wait longer than "
-                        "our retry policy allows."
-                    ) from exc
-
-                delay = max(delay, retry_after)
-
-            logger.warning(
-                "Model request returned HTTP %s; "
-                "retrying in %.2fs (next attempt %s/%s).",
-                status,
-                delay,
-                attempt + 1,
-                MAX_PROVIDER_ATTEMPTS,
-            )
-
-            time.sleep(delay)
-
-
-def _create_completion_with_fallback(**kwargs):
-    """Try the primary model, then one configured fallback attempt."""
-    primary_model = kwargs["model"]
-
-    try:
-        return _create_completion_with_retries(**kwargs)
-    except ModelUnavailableError as exc:
-        if not fallback_model or fallback_model == primary_model:
-            raise
-
-        # A long Retry-After can apply to the shared provider/account.
-        # Do not bypass it by immediately switching models.
-        cause = exc.__cause__
-        response = getattr(cause, "response", None)
-
-        if response is not None:
-            delay = _retry_after_seconds(response)
-            if delay is not None and delay > 0:
-                if delay > MAX_RETRY_DELAY:
-                    raise
-                time.sleep(delay)
-
-        fallback_request = dict(kwargs)
-        fallback_request["model"] = fallback_model
-
-        if fallback_model == "Qwen/Qwen3-235B-A22B-Instruct-2507":
-            extra = dict(fallback_request.get("extra_body") or {})
-
-            extra.pop("chat_template_kwargs", None)
-            extra.pop("enable_thinking", None)
-            extra.pop("reasoning", None)
-
-            if extra:
-                fallback_request["extra_body"] = extra
-            else:
-                fallback_request.pop("extra_body", None)
-
-        logger.warning(
-            "Primary model %s unavailable; trying fallback %s with bounded retries.",
-            primary_model,
-            fallback_model,
-        )
-
-        try:
-            result = _create_completion_with_retries(
-                **fallback_request
-            )
-        except ModelUnavailableError as fallback_exc:
-            raise ModelUnavailableError(
-                f"Primary model {primary_model} and fallback "
-                f"{fallback_model} were unavailable."
-            ) from fallback_exc
-
-        logger.info(
-            "Fallback model %s completed the request.",
-            fallback_model,
-        )
-        return result
 
 
 def get_model_response(prompt: str) -> str:
     """Send a prompt to Qwen and return its text response."""
-    response = _create_completion_with_fallback(
-        model=model,
+    response = create_completion(
         messages=[
             {"role": "user", "content": prompt}
         ],
@@ -319,8 +136,7 @@ def get_model_completion(messages: list, tools: list):
 
     Returns the full API response, including proposed tool calls.
     """
-    return _create_completion_with_fallback(
-        model=model,
+    return create_completion(
         messages=messages,
         tools=tools,
         tool_choice="auto",

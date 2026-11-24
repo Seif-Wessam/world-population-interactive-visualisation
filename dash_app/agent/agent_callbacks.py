@@ -21,42 +21,126 @@ def run_agent(question: str) -> dict:
 
 def render_result(outcome: dict):
     """Convert analytical results into Dash presentation components."""
-    df = outcome["results"]
+    df = outcome.get("results")
+
+    if df is not None and not isinstance(df, pd.DataFrame):
+        raise TypeError("Agent results must be a pandas DataFrame or None.")
     if not isinstance(df, pd.DataFrame):
         raise TypeError("Agent results must be a pandas DataFrame.")
 
     selections = outcome.get("selections", [])
-    clean = df.astype(object).where(pd.notna(df), None)
-    table = dash_table.DataTable(
-        data=clean.to_dict("records"),
-        columns=[{"name": str(column), "id": str(column)} for column in df.columns],
-        page_size=15,
-        sort_action="native",
-        filter_action="native",
-        style_table={"overflowX": "auto"},
-        style_cell={
-            "fontFamily": "Segoe UI, Arial, sans-serif",
-            "fontSize": "13px",
-            "textAlign": "left",
-            "padding": "10px",
-            "minWidth": "100px",
-        },
-        style_header={"fontWeight": "600", "backgroundColor": "#f5f6fa"},
-    )
-    summary = html.P(
-        f"{len(selections)} indicator(s) · {len(df)} result row(s)",
-        className="agent-summary",
-    )
-    metadata = html.Ul([
-        html.Li(
-            f"{s.get('metric', 'Indicator')}: "
-            f"{s['database_id']} / {s['indicator_id']} "
-            f"({s['country_code']}, {s['start_year']}–{s['end_year']})"
-        )
-        for s in selections
-    ])
-    return summary, table, outcome.get("sql", ""), metadata
 
+    if df is None:
+        table = html.P("No query result is available.")
+        row_count = 0
+    else:
+        row_count = len(df)
+        clean = df.astype(object).where(pd.notna(df), None)
+
+        # Keep your existing dash_table.DataTable(...) construction here.
+        table = dash_table.DataTable(
+            id="agent-result-table",
+            data=clean.to_dict("records"),
+            columns=[
+                {"name": str(column), "id": str(column)}
+                for column in df.columns
+            ],
+            page_size=15,
+            sort_action="native",
+            filter_action="native",
+            style_table={"overflowX": "auto"},
+            style_cell={
+                "fontFamily": "Segoe UI, Arial, sans-serif",
+                "fontSize": "13px",
+                "textAlign": "left",
+                "padding": "10px",
+                "minWidth": "100px",
+            },
+            style_header={
+                "fontWeight": "600",
+                "backgroundColor": "#f5f6fa",
+            },
+        )
+
+        summary = html.P(
+            f"{len(selections)} indicator(s) · {row_count} result row(s)",
+            className="agent-summary",
+        )
+        metadata = html.Ul([
+            html.Li(
+                f"{s.get('metric', 'Indicator')}: "
+                f"{s['database_id']} / {s['indicator_id']} "
+                f"({s['country_code']}, {s['start_year']}–{s['end_year']})"
+            )
+            for s in selections
+        ])
+    return summary, table, outcome.get("sql") or "", metadata
+
+def render_analysis(outcome: dict):
+    """Display workflow status, answer, and preserved query results."""
+    labels = {
+        "complete": (
+            "Answer generated.",
+            "#166534",
+        ),
+        "partial": (
+            "Analysis incomplete — available results are shown below.",
+            "#92400e",
+        ),
+        "failed": (
+            "Analysis could not produce a query result.",
+            "#991b1b",
+        ),
+    }
+
+    status = outcome.get("analysis_status")
+    if status not in labels:
+        raise ValueError("Unexpected analysis status.")
+
+    answer = outcome.get("answer")
+    if not isinstance(answer, str) or not answer.strip():
+        raise ValueError("Expected a non-empty answer.")
+
+    summary, table, sql, metadata = render_result(outcome)
+    label, color = labels[status]
+
+    content = [
+        html.P(
+            label,
+            id="agent-analysis-status",
+            role="status",
+            style={"color": color, "fontWeight": "600"},
+        ),
+        html.H3("Answer"),
+        html.Div(
+            answer.strip(),
+            id="agent-answer",
+            style={
+                "whiteSpace": "pre-wrap",
+                "lineHeight": "1.6",
+                "marginBottom": "12px",
+            },
+        ),
+        html.P(
+            "AI-generated explanation. Review the available data "
+            "and SQL for supporting evidence.",
+            className="hint",
+        ),
+    ]
+
+    if outcome.get("results") is not None:
+        content.extend([
+            html.H3("Available query result"),
+            html.P(
+                "This table preserves the first successful query. "
+                "Additional calculations may have been used in the answer.",
+                className="hint",
+            ),
+        ])
+
+    content.extend([summary, table])
+
+    return html.Div(content), sql, metadata
 
 def register_agent_callbacks(app):
     @app.callback(
@@ -99,7 +183,7 @@ def register_agent_callbacks(app):
 
         try:
             outcome = run_agent(question)
-            summary, table, sql, metadata = render_result(outcome)
+            return render_analysis(outcome)
 
         except Exception:
             app.logger.exception("Agent analysis failed")

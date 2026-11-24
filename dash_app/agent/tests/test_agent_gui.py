@@ -144,29 +144,60 @@ def test_requires_s3_write_protection(callback, monkeypatch):
     assert len(values) == len(callback.outputs)
     assert "AGENT_SKIP_S3=1" in values[0].children
 
-def test_success_calls_agent_and_returns_correct_outputs(
-    callback, monkeypatch, outcome
+@pytest.mark.parametrize(
+    "status,label",
+    [
+        ("complete", "Answer generated."),
+        (
+            "partial",
+            "Analysis incomplete — available results are shown below.",
+        ),
+    ],
+)
+def test_answer_and_available_results_are_displayed(
+    callback, monkeypatch, outcome, status, label
 ):
     monkeypatch.setenv("AGENT_UI_LIVE", "1")
     monkeypatch.setenv("AGENT_SKIP_S3", "1")
+
+    outcome["analysis_status"] = status
+    if status == "partial":
+        outcome["analysis_reason"] = "turn_limit_reached"
+        outcome["answer"] = (
+            "A query result is available, but the analysis "
+            "could not be completed."
+        )
+
     seen = []
-    monkeypatch.setattr(
-        agent_callbacks, "run_agent", lambda q: (seen.append(q), outcome)[1]
-    )
+
+    def fake_agent(question):
+        seen.append(question)
+        return outcome
+
+    monkeypatch.setattr(agent_callbacks, "run_agent", fake_agent)
+
     values = callback.callback_fn(1, "  How has Egypt changed?  ")
+
     assert seen == ["How has Egypt changed?"]
     assert len(values) == len(callback.outputs)
-    assert isinstance(values[0], html.Div)
-    assert "complete" in values[0].children[0].children.lower()
-    assert isinstance(values[0].children[2], dash_table.DataTable)
-    table = values[0].children[2]
+
+    components = list(walk(values[0]))
+    by_id = {
+        getattr(component, "id", None): component
+        for component in components
+        if getattr(component, "id", None)
+    }
+
+    assert by_id["agent-analysis-status"].children == label
+    assert by_id["agent-answer"].children == outcome["answer"]
+
+    table = by_id["agent-result-table"]
     assert isinstance(table, dash_table.DataTable)
     assert len(table.data) == len(outcome["results"])
-    assert [col["id"] for col in table.columns] == [
-        "year",
-        "population",
-        "life_expectancy",
-    ]
+    assert table.data[1]["population"] == 114535772.0
+    assert values[1] == outcome["sql"]
+
+    assert components.index(by_id["agent-answer"]) < components.index(table)
 
 
 def test_agent_error_is_safely_reported(callback, monkeypatch):
@@ -181,3 +212,38 @@ def test_agent_error_is_safely_reported(callback, monkeypatch):
     assert len(values) == len(callback.outputs)
     assert "Analysis failed" in values[0].children
     assert "secret backend error" not in str(values)
+
+
+def test_failed_outcome_without_dataframe(
+    callback, monkeypatch, outcome
+):
+    monkeypatch.setenv("AGENT_UI_LIVE", "1")
+    monkeypatch.setenv("AGENT_SKIP_S3", "1")
+
+    outcome.update(
+        results=None,
+        sql=None,
+        answer="No SQL query completed successfully.",
+        analysis_status="failed",
+        analysis_reason="sql_attempt_limit_reached",
+    )
+    monkeypatch.setattr(
+        agent_callbacks, "run_agent", lambda question: outcome
+    )
+
+    values = callback.callback_fn(1, "Population in Egypt?")
+    components = list(walk(values[0]))
+
+    assert len(values) == len(callback.outputs)
+    assert values[1] == ""
+    assert not any(
+        isinstance(component, dash_table.DataTable)
+        for component in components
+    )
+
+    answer = next(
+        component
+        for component in components
+        if getattr(component, "id", None) == "agent-answer"
+    )
+    assert answer.children == outcome["answer"]

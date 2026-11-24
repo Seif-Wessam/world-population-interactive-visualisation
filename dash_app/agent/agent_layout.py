@@ -4,9 +4,9 @@ from dash import dcc, html
 
 
 EXAMPLE_QUESTION = (
-    "For Egypt, return annual total population and life expectancy at birth, "
-    "total (years), from 2000 through 2023. Return year, population and "
-    "life_expectancy, ordered by year ascending."
+    "How did Egypt's total population change between 2000 and 2023? "
+    "Report the population in both years, the absolute change in people, "
+    "and the percentage change."
 )
 
 
@@ -39,7 +39,7 @@ def create_agent_layout():
                 [
                     html.Button("Run analysis", id="agent-submit", n_clicks=0),
                     html.Span(
-                        "Local MVP · Live requests are opt-in",
+                        "Local prototype · Each submission is an independent question",
                         className="hint",
                     ),
                 ],
@@ -52,9 +52,7 @@ def create_agent_layout():
                     [
                         html.P(
                             "Submit a question to see the analysis.",
-                            id="agent-status",
-                            role="status",
-                            className="history-message",
+                            id="agent-results",
                         ),
                         html.Div(id="agent-summary"),
                         html.Div(id="agent-results"),
