@@ -38,7 +38,6 @@ from agentic_framework.transform import (
 from agentic_framework.analytics import (
     create_connection,
     get_schema,
-    execute_query,
 )
 
 from agentic_framework.discovery import (
@@ -297,11 +296,6 @@ async def _answer_question(question: str) -> dict:
         print(sql)
 
         # Stage 7: Validate and execute.
-        results = execute_query(
-            con,
-            sql,
-            APPROVED_TABLES,
-        )
         metadata = indicators.to_dict("records")
         analysis = run_analysis_loop(
             question=question,

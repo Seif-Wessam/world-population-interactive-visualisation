@@ -193,6 +193,41 @@ the answer relies on them.
 **Revisit when:** Broader evaluations reveal recurring numerical or
 interpretation errors, or stronger guarantees become necessary.
 
+### Known limitation — displayed results versus answer evidence
+
+Recorded: 2026-11-25
+
+The controller retains the first successfully executed query result
+as `first_result_id`. Both complete and partial outcomes return this
+result's SQL and DataFrame to the GUI.
+
+However, the generated answer may also use evidence from subsequent
+successful queries. Those follow-up results are stored in the
+question's evidence registry but are not returned as additional
+tables in the current response contract.
+
+Consequently, the displayed table and SQL do not necessarily expose
+every calculation used in the final answer.
+
+For example, the first result may contain 24 annual population
+observations, while a follow-up result contains the percentage
+change. The answer can report that percentage, but the GUI displays
+only the annual series and its SQL.
+
+Preserving the first successful result provides a useful fallback
+when later analysis fails. It does not guarantee complete visibility
+of the evidence supporting a completed answer.
+
+We retain the current behavior for now. A future revision should
+consider returning multiple successful results with their IDs and
+SQL, and identifying which results support the answer. Automatically
+displaying only the latest result would also be insufficient because
+an answer may depend on several results.
+
+This limitation concerns evidence presentation; exposing additional
+results would not itself guarantee the correctness of the answer's
+interpretation.
+
 ## ADR-016 — Use the OpenAI-compatible SDK with the Hugging Face router
 
 Date: 2026-11-25
