@@ -250,3 +250,23 @@ def test_failed_outcome_without_dataframe(
         if getattr(component, "id", None) == "agent-answer"
     )
     assert answer.children == outcome["answer"]
+
+
+
+
+from collections import Counter
+
+
+def test_agent_layout_ids_are_unique():
+    ids = [
+        component.id
+        for component in walk(create_agent_layout())
+        if getattr(component, "id", None) is not None
+    ]
+    duplicates = {
+        component_id: count
+        for component_id, count in Counter(ids).items()
+        if count > 1
+    }
+
+    assert not duplicates, f"Duplicate component IDs: {duplicates}"

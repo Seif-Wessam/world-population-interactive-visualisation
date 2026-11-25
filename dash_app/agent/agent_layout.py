@@ -55,7 +55,6 @@ def create_agent_layout():
                             id="agent-results",
                         ),
                         html.Div(id="agent-summary"),
-                        html.Div(id="agent-results"),
                         html.Details(
                             [
                                 html.Summary("Generated SQL"),
