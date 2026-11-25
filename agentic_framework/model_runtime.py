@@ -5,7 +5,6 @@ import json
 import re
 
 from dotenv import load_dotenv
-from huggingface_hub import InferenceClient
 
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -16,8 +15,7 @@ import time
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 
-from huggingface_hub.errors import HfHubHTTPError
-
+from openai import OpenAI, APIStatusError, APIConnectionError
 
 logger = logging.getLogger(__name__)
 
@@ -40,9 +38,11 @@ model = os.getenv("MODEL_NAME", "Qwen/Qwen3.5-9B")
 fallback_model = os.getenv("FALLBACK_MODEL_NAME", "").strip()
 
 # 3. Initialize the Hugging Face inference client
-client = InferenceClient(
+client = OpenAI(
+    base_url="https://router.huggingface.co/v1",
     api_key=token,
-    provider="deepinfra", 
+    timeout=60.0,
+    max_retries=0,
 )
 
 
@@ -97,7 +97,13 @@ def _create_completion_with_retries(**kwargs):
         try:
             return client.chat.completions.create(**kwargs)
 
-        except HfHubHTTPError as exc:
+        except APIConnectionError as exc:
+            raise ModelUnavailableError(
+                "The Hugging Face router could not be reached "
+                "or the request timed out."
+            ) from exc
+
+        except APIStatusError as exc:
             response = exc.response
             status = (
                 response.status_code
@@ -187,8 +193,12 @@ def create_completion(**kwargs):
     # One primary attempt before considering the fallback.
     try:
         return client.chat.completions.create(**request)
-
-    except HfHubHTTPError as exc:
+    except APIConnectionError as exc:
+        raise ModelUnavailableError(
+            "The Hugging Face router could not be reached "
+            "or the request timed out."
+        ) from exc
+    except APIStatusError as exc:
         response = exc.response
         status = (
             response.status_code

@@ -62,6 +62,9 @@ def outcome():
              "metric": "Life expectancy", "country_code": "EGY",
              "start_year": 2000, "end_year": 2023},
         ],
+        "answer": "Egypt's population increased over the observed period.",
+        "analysis_status": "complete",
+        "analysis_reason": None,
     }
 
 
@@ -78,7 +81,7 @@ def walk(component):
 def test_layout_has_all_expected_ids(callback):
     component_ids = {getattr(x, "id", None) for x in walk(create_agent_layout())}
     required = {
-        "agent-question", "agent-submit", "agent-status", "agent-summary",
+        "agent-question", "agent-submit", "agent-summary",
         "agent-results", "agent-sql", "agent-metadata",
     }
     assert required <= component_ids

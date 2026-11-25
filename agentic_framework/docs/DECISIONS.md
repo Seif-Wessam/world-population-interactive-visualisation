@@ -193,6 +193,72 @@ the answer relies on them.
 **Revisit when:** Broader evaluations reveal recurring numerical or
 interpretation errors, or stronger guarantees become necessary.
 
+## ADR-016 — Use the OpenAI-compatible SDK with the Hugging Face router
+
+Date: 2026-11-25
+Status: Accepted; SDK integration and end-to-end validation pending.
+
+### Context
+
+The Hugging Face InferenceClient rejected configured models because
+their inference-provider mappings were empty. Direct authenticated
+API checks also returned empty mappings.
+
+However, a direct HTTP request through the Hugging Face router
+successfully returned a completion for the selected Qwen model.
+This establishes that the tested router path worked; it does not
+establish why the provider mappings were unavailable.
+
+### Decision
+
+Use the OpenAI Python SDK as the HTTP client for the Hugging Face
+router, configured with:
+
+- Base URL: https://router.huggingface.co/v1
+- Authentication: HF_TOKEN
+- Explicit request timeout
+- SDK retries disabled with max_retries=0
+
+We continue using Qwen through Hugging Face. Using this SDK does
+not mean using OpenAI models or OpenAI billing.
+
+Keep this integration inside model_runtime.py. Preserve its public
+interface so llm_client.py and the analytical workflow can continue
+calling create_completion().
+
+Our runtime retains responsibility for bounded retries, fallback
+selection and the model selected for each question. Update exception
+handling to use the SDK's HTTP and connection error types.
+
+### Rationale
+
+The SDK provides response objects compatible with our existing
+attribute-access pattern, including message content and tool calls.
+This reduces manual HTTP handling and response conversion compared
+with using raw HTTP throughout the runtime.
+
+### Consequences and limitations
+
+- Introduces the OpenAI SDK dependency.
+- Requires updates to runtime exception handling and unit tests.
+- Text completion success does not establish tool-calling compatibility.
+- Router-side provider selection may vary independently of our
+  application-level model selection.
+- Disabling SDK retries does not disable router-side failover.
+- Reasoning behavior remains model-specific; changing the SDK does
+  not disable thinking.
+
+### Validation
+
+Before treating the migration as complete:
+
+1. Run offline tests for retries, fallback and session isolation.
+2. Verify text completion and tool calls through the SDK.
+3. Run the live analytical test against independent World Bank
+   reference observations.
+
+This decision supersedes the transport choice in ADR-003.
+
 ## Decision review checklist
 
 When a decision changes, record: **context → decision → alternatives → implementation status → consequences → tests → conditions for revision**. Avoid labeling a proposed future architecture as deployed or production-ready. Update this log alongside significant changes to `main.py`, retrieval/normalization behavior, SQL restrictions and storage semantics.

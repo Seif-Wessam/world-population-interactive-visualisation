@@ -25,8 +25,6 @@ def render_result(outcome: dict):
 
     if df is not None and not isinstance(df, pd.DataFrame):
         raise TypeError("Agent results must be a pandas DataFrame or None.")
-    if not isinstance(df, pd.DataFrame):
-        raise TypeError("Agent results must be a pandas DataFrame.")
 
     selections = outcome.get("selections", [])
 
@@ -62,19 +60,20 @@ def render_result(outcome: dict):
             },
         )
 
-        summary = html.P(
-            f"{len(selections)} indicator(s) · {row_count} result row(s)",
-            className="agent-summary",
+    summary = html.P(
+        f"{len(selections)} indicator(s) · {row_count} result row(s)",
+        className="agent-summary",
+    )
+    metadata = html.Ul([
+        html.Li(
+            f"{s.get('metric', 'Indicator')}: "
+            f"{s['database_id']} / {s['indicator_id']} "
+            f"({s['country_code']}, {s['start_year']}-{s['end_year']})"
         )
-        metadata = html.Ul([
-            html.Li(
-                f"{s.get('metric', 'Indicator')}: "
-                f"{s['database_id']} / {s['indicator_id']} "
-                f"({s['country_code']}, {s['start_year']}–{s['end_year']})"
-            )
-            for s in selections
-        ])
+        for s in selections
+    ])
     return summary, table, outcome.get("sql") or "", metadata
+
 
 def render_analysis(outcome: dict):
     """Display workflow status, answer, and preserved query results."""

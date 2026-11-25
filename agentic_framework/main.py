@@ -164,8 +164,11 @@ def verify_observation_scope(
     ).all():
         raise ValueError("Observations outside requested year range.")
 
-
 async def answer_question(question: str) -> dict:
+    with model_session():
+        return await _answer_question(question)
+
+async def _answer_question(question: str) -> dict:
     """Run the analytical workflow for one or more indicators."""
 
     skip_s3 = os.getenv("AGENT_SKIP_S3", "0") == "1"
