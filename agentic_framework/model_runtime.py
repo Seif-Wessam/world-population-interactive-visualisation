@@ -32,18 +32,32 @@ class ModelUnavailableError(RuntimeError):
 # 1. Load environment variables from this module's .env
 load_dotenv(Path(__file__).with_name(".env"))
 
-# 2. Retrieve configuration
-token = os.environ["HF_TOKEN"]
+# 2. Load environment variables from the parent directory's .env
 model = os.getenv("MODEL_NAME", "Qwen/Qwen3.5-9B")
 fallback_model = os.getenv("FALLBACK_MODEL_NAME", "").strip()
 
-# 3. Initialize the Hugging Face inference client
-client = OpenAI(
-    base_url="https://router.huggingface.co/v1",
-    api_key=token,
-    timeout=60.0,
-    max_retries=0,
-)
+client: OpenAI | None = None
+
+
+def get_client() -> OpenAI:
+    """Create the client on first use, then reuse it."""
+    global client
+
+    if client is None:
+        token = os.getenv("HF_TOKEN")
+        if not token:
+            raise ModelUnavailableError(
+                "HF_TOKEN is required for live model requests."
+            )
+
+        client = OpenAI(
+            base_url="https://router.huggingface.co/v1",
+            api_key=token,
+            timeout=60.0,
+            max_retries=0,
+        )
+
+    return client
 
 
 
@@ -95,7 +109,7 @@ def _create_completion_with_retries(**kwargs):
     """Retry temporary HTTP failures for one model request."""
     for attempt in range(1, MAX_PROVIDER_ATTEMPTS + 1):
         try:
-            return client.chat.completions.create(**kwargs)
+            return get_client().chat.completions.create(**kwargs)
 
         except APIConnectionError as exc:
             raise ModelUnavailableError(
@@ -192,7 +206,7 @@ def create_completion(**kwargs):
 
     # One primary attempt before considering the fallback.
     try:
-        return client.chat.completions.create(**request)
+        return get_client().chat.completions.create(**request)
     except APIConnectionError as exc:
         raise ModelUnavailableError(
             "The Hugging Face router could not be reached "
